@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import base64
 import json
 import os
-import re
 import warnings
-from dotenv import load_dotenv
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List
 
-from backend.agents.types import ImageRef, PageContent, ImportantCategory
-from backend.agents.utils.hash import sha256_bytes
+from dotenv import load_dotenv
+
+from backend.agents.types import PageContent, ImportantCategory
 
 # Suppress pypdf warnings about corrupted objects
 warnings.filterwarnings("ignore", category=UserWarning, module="pypdf")
@@ -31,11 +29,11 @@ def parse_pdf(
     doc_id_prefix: str | None = None,
     options: ParseOptions | None = None,
 ) -> List[PageContent]:
-    """Parse PDF by sending directly to OpenAI as base64 document.
-    
+    """Parse PDF by sending directly to OpenAI as a document input.
+
     LLM processes entire PDF, extracts text, corrects typos,
     merges related pages, and filters unimportant content.
-    
+
     Returns a list of PageContent objects from grouped/merged pages.
     """
     options = options or ParseOptions()
@@ -49,8 +47,7 @@ def parse_pdf(
 
     # Read PDF file
     try:
-        with open(p, 'rb') as f:
-            pdf_bytes = f.read()
+        pdf_bytes = p.read_bytes()
         print(f"[Parser] Read PDF {p.name} ({len(pdf_bytes)} bytes)")
     except Exception as e:
         print(f"[Parser] Error reading PDF {p}: {e}")
@@ -59,36 +56,28 @@ def parse_pdf(
     # Call OpenAI with PDF document
     try:
         from openai import OpenAI
+
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             print("[Parser] OPENAI_API_KEY not set, cannot process with LLM")
             return []
-        
+
         client = OpenAI(api_key=api_key)
-        
-        # Upload PDF to OpenAI Files API
+
+        # Upload PDF (upload step is only storage; prompt goes in the model call)
         try:
-            with open(p, 'rb') as f:
+            with open(p, "rb") as f:
                 file_response = client.files.create(
-                    file=(p.name, f, "application/pdf"),
-                    purpose="assistants"
+                    file=f,
+                    purpose="user_data",  # better for model inputs than "assistants"
                 )
             file_id = file_response.id
             print(f"[Parser] Uploaded PDF to OpenAI, file_id: {file_id}")
         except Exception as e:
             print(f"[Parser] Failed to upload PDF to OpenAI: {e}")
             return []
-        
-        try:
-            # Send request with file reference
-            response = client.chat.completions.create(
-                model=options.model,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": """You are a document extraction and analysis system. Process this PDF document.
+
+        prompt = """You are a document extraction and analysis system. Process this PDF document.
 
 Tasks:
 1. Identify logical page groups (consecutive pages covering same topic)
@@ -101,7 +90,7 @@ Return ONLY a valid JSON object:
 {
   "page_groups": [
     {"pages": [1, 2], "content": "Extracted text with typos corrected", "topic": "Topic label"},
-    {"pages": [3], "content": "SKIP"}
+    {"pages": [3], "content": "SKIP", "topic": "Optional label"}
   ]
 }
 
@@ -111,77 +100,95 @@ Rules:
 - Merge consecutive pages about the same topic
 - Each group must have pages list, content, and topic
 - Return ONLY the JSON, no markdown or explanation"""
-                        },
-                        {
-                            "type": "file",
-                            "file": file_id
-                        }
-                    ]
+
+        try:
+            # Use Responses API with input_file
+            response = client.responses.create(
+                model=options.model,
+                input=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": prompt},
+                        {"type": "input_file", "file_id": file_id},
+                    ],
                 }],
                 temperature=0.0,
-                max_tokens=4000,
+                max_output_tokens=4000,
             )
-            
-            response_text = response.choices[0].message.content.strip()
+
+            # `output_text` is the simplest way to get the model's text output
+            response_text = (getattr(response, "output_text", None) or "").strip()
+            if not response_text:
+                # Fallback if SDK version doesn’t expose output_text for some reason
+                response_text = ""
+                try:
+                    for item in response.output:
+                        if item.type == "message":
+                            for c in item.content:
+                                if c.type == "output_text":
+                                    response_text += c.text
+                    response_text = response_text.strip()
+                except Exception:
+                    pass
+
         finally:
-            # Clean up: delete the uploaded file
+            # Clean up uploaded file
             try:
                 client.files.delete(file_id)
-                print(f"[Parser] Cleaned up uploaded file")
+                print("[Parser] Cleaned up uploaded file")
             except Exception as e:
                 print(f"[Parser] Warning: Could not delete file {file_id}: {e}")
-        
-        # Parse JSON response
+
+        # Parse JSON response (keep your existing robustness)
         try:
-            if response_text.startswith('```json'):
+            # Strip common fences if the model misbehaves
+            if response_text.startswith("```json"):
                 response_text = response_text[7:]
-            if response_text.startswith('```'):
+            if response_text.startswith("```"):
                 response_text = response_text[3:]
-            if response_text.endswith('```'):
+            if response_text.endswith("```"):
                 response_text = response_text[:-3]
-            
+
             extracted_data = json.loads(response_text)
         except json.JSONDecodeError as e:
             print(f"[Parser] Failed to parse LLM JSON response: {e}")
+            print(f"[Parser] Raw response (truncated): {response_text[:500]}")
             return []
-        
-        # Convert page groups to PageContent objects
+
+        # Convert page groups to PageContent objects (same as your code)
         pages: List[PageContent] = []
         for group in extracted_data.get("page_groups", []):
-            content = group.get("content", "")
-            
-            # Skip unimportant pages
-            if content.upper() == "SKIP" or not content.strip():
+            content = (group.get("content") or "").strip()
+            if not content or content.upper() == "SKIP":
                 continue
-            
+
             page_nums = group.get("pages", [])
             topic = group.get("topic", "Unknown")
             first_page = page_nums[0] if page_nums else 0
-            
-            # Create doc_id from page range
+
             if len(page_nums) > 1:
                 page_range = f"p{page_nums[0]}-{page_nums[-1]}"
             else:
                 page_range = f"p{first_page}"
-            
+
             doc_id = f"{doc_id_prefix}_{page_range}"
-            
+
+            # NOTE: you currently don’t store `topic` in PageContent (unless it has a field).
+            # If PageContent supports extra fields, you can attach it; otherwise we keep identical behavior.
             pages.append(
                 PageContent(
                     doc_id=doc_id,
                     source_path=str(p.resolve()),
                     category=category,
                     page=first_page,
-                    text=content.strip(),
+                    text=content,
                     images=[],
                 )
             )
-        
+
         print(f"[Parser] Extracted {len(pages)} page groups from {p.name}")
         return pages
-        
+
     except Exception as e:
         print(f"[Parser] LLM extraction failed for {p}: {e}")
         return []
-
-
