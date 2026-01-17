@@ -273,3 +273,107 @@ def load_kg_from_atlasrag(kg_dir: str | Path) -> tuple[List[KGNode], List[KGEdge
                     ))
     
     return nodes, edges
+
+class KnowledgeGraphBuilder:
+    def build(self, doc_infos):
+        """
+        Build a knowledge graph from LLM-extracted document infos.
+        Each info should have 'important_points' and 'source'.
+        Returns nodes and edges.
+        """
+        nodes = []
+        edges = []
+        # Create nodes and keep mapping for edge heuristics
+        node_map = {}  # (doc_idx, point_idx) -> node_id
+        for idx, info in enumerate(doc_infos):
+            points = info.get('important_points', []) or []
+            for i, point in enumerate(points):
+                node_id = f"doc{idx}_point{i}"
+                label = point.get('label', point if isinstance(point, str) else str(point)) if isinstance(point, dict) or isinstance(point, str) else str(point)
+                desc = point.get('description', '') if isinstance(point, dict) else (point if isinstance(point, str) else '')
+                nodes.append(KGNode(
+                    node_id=node_id,
+                    label=label,
+                    node_type=point.get('type', 'Concept') if isinstance(point, dict) else 'Concept',
+                    description=desc,
+                    properties={},
+                    source_ids=[info.get('source')],
+                ))
+                node_map[(idx, i)] = {
+                    'node_id': node_id,
+                    'label': str(label),
+                    'description': str(desc),
+                    'source': info.get('source')
+                }
+
+        # Heuristic edges:
+        # 1) Sequential 'follows' edges within the same document
+        for (doc_idx, i), node in list(node_map.items()):
+            next_key = (doc_idx, i + 1)
+            if next_key in node_map:
+                edges.append(KGEdge(
+                    source_id=node['node_id'],
+                    target_id=node_map[next_key]['node_id'],
+                    relation_type='follows',
+                    properties={},
+                ))
+
+        # 2) 'related_to' edges when one node's label appears in another node's description
+        #    This catches explicit mentions and creates basic semantic links.
+        labels = {k: v['label'].lower() for k, v in node_map.items()}
+        for a_key, a in node_map.items():
+            a_desc = (a.get('description') or '').lower()
+            for b_key, b in node_map.items():
+                if a_key == b_key:
+                    continue
+                b_label = b.get('label', '').lower()
+                if b_label and b_label in a_desc:
+                    # a mentions b -> a related_to b
+                    edges.append(KGEdge(
+                        source_id=a['node_id'],
+                        target_id=b['node_id'],
+                        relation_type='related_to',
+                        properties={'heuristic': 'mention'},
+                    ))
+
+        # Deduplicate edges by (source,target,relation_type)
+        seen = set()
+        unique_edges = []
+        for e in edges:
+            key = (e.source_id, e.target_id, e.relation_type)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_edges.append(e)
+
+        # Determine category (use first doc's category if available)
+        category = 'Lectures'
+        if doc_infos:
+            first = doc_infos[0]
+            cat = first.get('category') or first.get('source_category')
+            if cat:
+                category = cat
+
+        return nodes, unique_edges, category
+
+class Clusterer:
+    def cluster(self, kg):
+        """
+        Cluster nodes using existing cluster_by_difficulty logic.
+        kg should be a tuple (nodes, edges, category)
+        """
+        if isinstance(kg, dict):
+            nodes = kg.get('nodes', [])
+            edges = kg.get('edges', [])
+            category = kg.get('category', 'Lectures')
+        elif isinstance(kg, tuple):
+            if len(kg) == 3:
+                nodes, edges, category = kg
+            elif len(kg) == 2:
+                nodes, edges = kg
+                category = 'Lectures'
+            else:
+                nodes, edges, category = [], [], 'Lectures'
+        else:
+            nodes, edges, category = [], [], 'Lectures'
+        return cluster_by_difficulty(nodes, edges, category)

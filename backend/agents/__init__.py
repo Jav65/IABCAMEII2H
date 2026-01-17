@@ -1,6 +1,13 @@
 """Agents package for cheatsheet generation pipeline."""
 
-from backend.agents.pipeline import run_pipeline
+from backend.agents.pipeline import (
+    Pipeline,
+    LLMAnalyzer,
+    KnowledgeGraphBuilder,
+    Clusterer,
+    Orderer,
+    CheatsheetGenerator,
+)
 from backend.agents.types import (
     ClusteredKnowledge,
     DifficultyLevel,
@@ -14,7 +21,12 @@ from backend.agents.types import (
 )
 
 __all__ = [
-    "run_pipeline",
+    "Pipeline",
+    "LLMAnalyzer",
+    "KnowledgeGraphBuilder",
+    "Clusterer",
+    "Orderer",
+    "CheatsheetGenerator",
     "GroupedFiles",
     "ImportantCategory",
     "OutputFormat",

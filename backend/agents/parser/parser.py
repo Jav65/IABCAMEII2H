@@ -119,3 +119,111 @@ def parse_pdf(
             )
 
     return pages
+
+
+def refine_pages_with_llm(pages: List[PageContent], model: str | None = None, use_llm: bool = True) -> List[PageContent]:
+    """
+    Refine raw PageContent objects using an LLM and heuristics.
+
+    Steps:
+    1. (Optional) Call LLM per page to remove unimportant text/images.
+    2. Heuristic merging: merge consecutive pages with high token overlap.
+
+    Returns a new list of PageContent objects where some pages may be combined.
+    """
+    # Simple local cleaning helper
+    def _local_clean(text: str) -> str:
+        # Remove long runs of whitespace and obvious headers/footers lines
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        # drop lines that look like page numbers or footers
+        cleaned = []
+        for ln in lines:
+            if re.match(r"^page\s+\d+$", ln.lower()):
+                continue
+            if len(ln) < 3:
+                continue
+            cleaned.append(ln)
+        return "\n".join(cleaned)
+
+    # Try to get an OpenAI-compatible client
+    client = None
+    if use_llm:
+        try:
+            from openai import OpenAI
+            import os
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if api_key:
+                client = OpenAI(api_key=api_key)
+        except Exception:
+            client = None
+
+    refined_texts: List[str] = []
+    for page in pages:
+        text = page.text or ""
+        if client:
+            try:
+                prompt = (
+                    "You are given the text of a single page from an academic document. "
+                    "Return a cleaned, concise version that removes unimportant words and noise, "
+                    "drops irrelevant images (just omit them), and preserves key facts and definitions. "
+                    "Output only the cleaned text.\n\nPage text:\n" + text[:8000]
+                )
+                resp = client.chat.completions.create(
+                    model=model or "gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    max_tokens=1200,
+                )
+                cleaned = resp.choices[0].message.content.strip()
+            except Exception:
+                cleaned = _local_clean(text)
+        else:
+            cleaned = _local_clean(text)
+        refined_texts.append(cleaned)
+
+    # Merge consecutive pages if overlap ratio is high
+    def _token_set(s: str):
+        toks = [t.lower() for t in re.findall(r"\w+", s) if len(t) > 2]
+        return set(toks)
+
+    refined_pages: List[PageContent] = []
+    i = 0
+    while i < len(pages):
+        combined_from = [pages[i].doc_id]
+        combined_text = refined_texts[i]
+        combined_images = list(pages[i].images)
+
+        j = i + 1
+        while j < len(pages):
+            a = _token_set(combined_text)
+            b = _token_set(refined_texts[j])
+            if not a or not b:
+                overlap = 0.0
+            else:
+                overlap = len(a & b) / max(len(a | b), 1)
+            # merge threshold: 0.25 (empirical)
+            if overlap >= 0.25:
+                combined_from.append(pages[j].doc_id)
+                combined_text = combined_text + "\n\n" + refined_texts[j]
+                combined_images.extend(pages[j].images)
+                j += 1
+            else:
+                break
+
+        # create new PageContent-like object (keep PageContent dataclass)
+        first = pages[i]
+        new_doc_id = f"{first.doc_id}_combined_{'_'.join([c.split('_')[-1] for c in combined_from])}"
+        refined_pages.append(
+            PageContent(
+                doc_id=new_doc_id,
+                source_path=first.source_path,
+                category=first.category,
+                page=first.page,
+                text=combined_text.strip(),
+                images=combined_images,
+            )
+        )
+
+        i = j
+
+    return refined_pages

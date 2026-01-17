@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 import json
 from pathlib import Path
 
-from backend.agents.pipeline import run_pipeline
+from backend.agents.pipeline import Pipeline, LLMAnalyzer, KnowledgeGraphBuilder, Clusterer, Orderer, CheatsheetGenerator
 from backend.agents.types import OutputFormat
 
 
@@ -62,31 +63,46 @@ def main() -> int:
 
     args = parser.parse_args()
 
+
     grouped_path = Path(args.grouped)
     grouped = json.loads(grouped_path.read_text(encoding="utf-8"))
 
-    out_dir = run_pipeline(
-        grouped,
-        job_id=args.job_id,
-        lang=args.lang,
-        output_format=args.output_format,  # type: ignore
-        run_atlasrag=bool(args.run_atlasrag),
-        atlasrag_base_url=args.atlasrag_base_url,
-        atlasrag_api_key=args.atlasrag_api_key,
-        atlasrag_model_path=args.atlasrag_model,
-        use_agentic=bool(args.use_agentic),
-        agentic_model=args.agentic_model,
+    # Convert grouped dict to document list for pipeline
+    documents = []
+    for category, files in grouped.items():
+        for file_path in files:
+            documents.append({
+                'source_path': os.path.join(os.getcwd(), "test_data", file_path),
+                'category': category,
+                'out_image_dir': f"{args.job_id}/images"
+            })
+
+    # Instantiate pipeline components
+    llm = LLMAnalyzer()
+    kg_builder = KnowledgeGraphBuilder()
+    clusterer = Clusterer()
+    orderer = Orderer()
+    cheatsheet_generator = CheatsheetGenerator()
+
+    pipeline = Pipeline(
+        documents=documents,
+        llm=llm,
+        kg_builder=kg_builder,
+        clusterer=clusterer,
+        orderer=orderer,
+        cheatsheet_generator=cheatsheet_generator,
     )
 
-    print(f"✓ Pipeline complete: {out_dir}")
-    
-    # Print summary of generated files
-    output_path = Path(out_dir)
+    cheatsheet = pipeline.run()
+
+    # Save cheatsheet output
+    out_dir = Path(args.job_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    output_file = out_dir / f"cheatsheet.tex"
+    output_file.write_text(cheatsheet, encoding="utf-8")
+    print(f"✓ Pipeline complete: {output_file}")
     print("\nGenerated files:")
-    for file in output_path.glob("*.*"):
-        if file.is_file() and file.suffix in [".tex", ".json", ".md"]:
-            print(f"  - {file.name} ({file.stat().st_size} bytes)")
-    
+    print(f"  - {output_file.name} ({output_file.stat().st_size} bytes)")
     return 0
 
 
