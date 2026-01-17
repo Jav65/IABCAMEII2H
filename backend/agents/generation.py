@@ -6,11 +6,14 @@ Supports: cheatsheet (LaTeX), cue_card (LaTeX/Markdown), flashcard (JSON).
 from __future__ import annotations
 
 import json
+from dotenv import load_dotenv
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.agents.types import ClusteredKnowledge, GeneratedOutput, GenerationRequest, OutputFormat
 
+load_dotenv()
 
 def _escape_latex(text: str) -> str:
     """Escape special LaTeX characters."""
@@ -40,6 +43,57 @@ def _sanitize_text_for_latex(text: str, max_length: int = 500) -> str:
     return _escape_latex(text)
 
 
+def _generate_block_with_llm(node_label: str, node_description: str, node_type: str, model: str = "gpt-4o-mini") -> str:
+    print("[Generation] Generating block for node:", node_label)
+    """Generate a concise block summary using LLM, filtering unimportant content.
+    
+    Args:
+        node_label: The concept/term label
+        node_description: The description/definition
+        node_type: Type of node (Concept, Definition, etc.)
+        model: LLM model to use
+        
+    Returns:
+        Concise summary suitable for LaTeX cheatsheet, or empty string if unimportant
+    """
+    try:
+        from openai import OpenAI
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            return _sanitize_text_for_latex(node_description, max_length=300)
+        
+        client = OpenAI(api_key=api_key)
+        prompt = f"""You are a study guide editor. Evaluate and summarize content for a cheatsheet.
+
+Term: {node_label}
+Type: {node_type}
+Content: {node_description}
+
+Task:
+1. Is this content important and educational? (yes/no)
+2. If yes, provide a 1-2 sentence concise definition/explanation.
+3. If no, respond with: SKIP
+
+Omit fluff, images, formatting details, and redundant information. Focus on core concepts only."""
+        
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=200,
+        )
+        summary = response.choices[0].message.content.strip()
+        
+        # Check if LLM decided to skip this block
+        if "SKIP" in summary.upper() or summary.lower().startswith("no"):
+            return ""
+        
+        return _sanitize_text_for_latex(summary, max_length=400)
+    except Exception as e:
+        print(f"[Generation] Warning: LLM block generation failed - {e}, using fallback")
+        return _sanitize_text_for_latex(node_description, max_length=300)
+
+
 def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
     """Generate a LaTeX cheatsheet from clustered knowledge.
     
@@ -50,7 +104,6 @@ def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
 \documentclass[10pt,a4paper]{article}
 \usepackage[margin=0.5in]{geometry}
 \usepackage{multicol}
-\usepackage{xcolor}
 \usepackage{fancyhdr}
 \usepackage{lastpage}
 \usepackage{tcolorbox}
@@ -86,11 +139,12 @@ def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
 
 \thispagestyle{fancy}
 
-\begin{multicols}{2}
+\begin{multicols}{3}
 """
     
     # Group nodes by difficulty
     nodes_by_difficulty: Dict[int, List] = {}
+    print("Assigning nodes to difficulty levels...")
     for node in knowledge.nodes:
         diff = knowledge.node_to_difficulty.get(node.node_id)
         if diff:
@@ -111,7 +165,12 @@ def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
         
         for node in nodes:
             node_title = _escape_latex(node.label)
-            node_desc = _sanitize_text_for_latex(node.description, max_length=300)
+            node_desc = _generate_block_with_llm(node.label, node.description, node.node_type)
+            
+            # Skip blocks with empty/unimportant content
+            if not node_desc or node_desc.strip() == "":
+                continue
+            
             node_type = _escape_latex(node.node_type)
             
             latex_content += f"""
@@ -243,7 +302,7 @@ def generate_output(request: GenerationRequest, output_path: Optional[str | Path
         file_ext = ".tex"
     elif request.output_format == "cue_card":
         content = _generate_cue_card(knowledge, title)
-        file_ext = ".tex"
+        file_ext = ".json"
     elif request.output_format == "flashcard":
         content = _generate_flashcard(knowledge, title)
         file_ext = ".json"

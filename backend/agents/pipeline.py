@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -16,7 +17,7 @@ from backend.agents.clustering import cluster_by_difficulty, KnowledgeGraphBuild
 class LLMAnalyzer:
     """Analyzes documents and extracts topics and important points using LLM."""
 
-    def __init__(self, model="gpt-4-turbo-preview"):
+    def __init__(self, model="gpt-4o-mini"):
         self.model = model
 
     def analyze(self, document: Dict[str, Any]) -> Dict[str, Any]:
@@ -45,13 +46,7 @@ class LLMAnalyzer:
                 category=document.get('category', 'Lectures'),
                 out_image_dir=document.get('out_image_dir', './images'),
             )
-            # refine pages with LLM (merge related pages, remove noise)
-            try:
-                from backend.agents.parser import refine_pages_with_llm
-                pages = refine_pages_with_llm(pages, model=self.model)
-            except Exception:
-                # keep original pages on any failure
-                pass
+            # LLM-based extraction already merges pages and filters unimportant content
         except Exception as e:
             print(f"Warning: Failed to parse {document.get('source_path')} - {e}")
             return {
@@ -100,20 +95,14 @@ class Orderer:
 
 
 class CheatsheetGenerator:
-    """Generates LaTeX cheatsheet from ordered nodes."""
+    """Generates LaTeX cheatsheet from ordered nodes using LLM."""
 
-    def __init__(self, model="gpt-4-turbo-preview"):
+    def __init__(self, model="gpt-4o-mini"):
         self.model = model
-        try:
-            from backend.agents.agentic_cheatsheet import AgenticCheatsheetGenerator
-            self.generator = AgenticCheatsheetGenerator(model=model)
-        except Exception as e:
-            print(f"Warning: Could not initialize agentic generator - {e}")
-            self.generator = None
 
     def generate(self, ordered_nodes: ClusteredKnowledge) -> str:
         """
-        Generate LaTeX cheatsheet from ordered nodes.
+        Generate LaTeX cheatsheet from ordered nodes using LLM for content blocks.
         
         Args:
             ordered_nodes: ClusteredKnowledge object
@@ -126,14 +115,13 @@ class CheatsheetGenerator:
 
         title = getattr(ordered_nodes, "category", "Study Cheatsheet")
         
-        if self.generator:
-            try:
-                return self.generator.generate(ordered_nodes, title=title)
-            except Exception as e:
-                print(f"Warning: Agentic generation failed - {e}, using fallback")
-        
-        # Fallback: basic LaTeX generation
-        return self._generate_fallback_latex(ordered_nodes, title)
+        # Use LLM-powered generation from generation module
+        try:
+            from backend.agents.generation import _generate_cheatsheet
+            return _generate_cheatsheet(ordered_nodes, title)
+        except Exception as e:
+            print(f"Warning: LLM generation failed - {e}, using fallback")
+            return self._generate_fallback_latex(ordered_nodes, title)
 
     def _generate_fallback_latex(self, knowledge: ClusteredKnowledge, title: str) -> str:
         """Generate basic LaTeX when agentic generator is unavailable."""
@@ -213,17 +201,27 @@ class Pipeline:
         """
         print("[Pipeline] Starting end-to-end pipeline...")
         
-        # Step 1: LLM analysis
-        print("[Pipeline] Step 1: Analyzing documents with LLM...")
+        # Step 1: LLM analysis (parallel processing)
+        print("[Pipeline] Step 1: Analyzing documents with LLM (parallel)...")
         doc_infos = []
-        for i, doc in enumerate(self.documents):
-            print(f"  Processing document {i+1}/{len(self.documents)}: {doc.get('source_path', 'unknown')}")
-            try:
-                info = self.llm.analyze(doc)
-                doc_infos.append(info)
-            except Exception as e:
-                print(f"  Warning: Failed to analyze document - {e}")
-                continue
+        
+        # Use ThreadPoolExecutor for parallel document processing
+        max_workers = min(4, len(self.documents))  # Limit to 4 concurrent threads to avoid API rate limits
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_doc = {executor.submit(self.llm.analyze, doc): doc for doc in self.documents}
+            
+            # Process results as they complete
+            completed = 0
+            for future in as_completed(future_to_doc):
+                doc = future_to_doc[future]
+                completed += 1
+                try:
+                    info = future.result()
+                    doc_infos.append(info)
+                    print(f"  ✓ Processed document {completed}/{len(self.documents)}: {doc.get('source_path', 'unknown')}")
+                except Exception as e:
+                    print(f"  ✗ Failed to analyze {doc.get('source_path', 'unknown')}: {e}")
 
         if not doc_infos:
             print("[Pipeline] Warning: No documents were successfully analyzed")
