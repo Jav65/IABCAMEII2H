@@ -70,11 +70,15 @@ Type: {node_type}
 Content: {node_description}
 
 Task:
-1. Is this content important and educational? (yes/no)
-2. If yes, provide a 1-2 sentence concise definition/explanation.
-3. If no, respond with: SKIP
-
-Omit fluff, images, formatting details, and redundant information. Focus on core concepts only."""
+Evaluate the educational value of the content.
+1. If the content is NOT important or educational, respond strictly with: SKIP
+2. If the content IS important, provide a 1-2 sentence concise definition/explanation formatted in LaTeX.
+   - Write standard text directly (do NOT wrap sentences in \\text{{}}, \\[ \\], or \\( \\)).
+   - Escape ALL LaTeX reserved characters in text (e.g., write \\$ for $, \\% for %, \\& for &, \\# for #, \\_ for _).
+   - Use \\texttt{{...}} for code snippets, commands, file paths, or URLs.
+   - Use $...$ ONLY for actual mathematical formulas or variables (e.g., $x=5$).
+   - **For lists:** Use the \\begin{{itemize}} ... \\end{{itemize}} environment with \\item for each point.
+   - Omit fluff, images, and redundant details."""
         
         response = client.chat.completions.create(
             model=model,
@@ -88,10 +92,10 @@ Omit fluff, images, formatting details, and redundant information. Focus on core
         if "SKIP" in summary.upper() or summary.lower().startswith("no"):
             return ""
         
-        return _sanitize_text_for_latex(summary, max_length=400)
+        return summary
     except Exception as e:
         print(f"[Generation] Warning: LLM block generation failed - {e}, using fallback")
-        return _sanitize_text_for_latex(node_description, max_length=300)
+        return node_description
 
 
 def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
@@ -102,7 +106,7 @@ def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
     
     latex_header = r"""
 \documentclass[10pt,a4paper]{article}
-\usepackage[margin=0.5in]{geometry}
+\usepackage[margin=0.5in,landscape]{geometry}
 \usepackage{multicol}
 \usepackage{fancyhdr}
 \usepackage{lastpage}
@@ -161,7 +165,7 @@ def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
         diff_obj = knowledge.node_to_difficulty.get(nodes[0].node_id)
         section_label = diff_obj.label if diff_obj else f"Level {difficulty_level}"
         
-        latex_content += f"\n\\subsection*{{\\diffcolor{{{difficulty_level}}}{section_label}}}\n"
+        latex_content += f"\n\\section{{{section_label}}}\n"
         
         for node in nodes:
             node_title = _escape_latex(node.label)
@@ -174,10 +178,8 @@ def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
             node_type = _escape_latex(node.node_type)
             
             latex_content += f"""
-\\begin{{tcolorbox}}[title={node_title}]
-\\textit{{{node_type}}} \\\\
+\\subsection{{{node_title}}}
 {node_desc}
-\\end{{tcolorbox}}
 """
     
     latex_content += r"""
