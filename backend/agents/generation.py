@@ -63,60 +63,71 @@ def _generate_block_with_llm(node_label: str, node_description: str, node_type: 
             return _sanitize_text_for_latex(node_description, max_length=300)
         
         client = OpenAI(api_key=api_key)
-        prompt = f"""You are a study guide editor. Evaluate and summarize content for a cheatsheet.
+        prompt = f"""You are a strict cheat sheet editor. Your goal is extreme space efficiency and information density for a PRINTED paper summary.
 
 Term: {node_label}
 Type: {node_type}
 Content: {node_description}
 
 Task:
-1. Is this content important and educational and relevant to "Information Security"? (yes/no)
-2. If yes, provide a concise definition/explanation.
-3. If no, respond with: SKIP
+1. **FILTER**: Respond SKIP if the content is:
+   - Course admin/logistics (grading, deadlines).
+   - Non-technical introductions.
+   - Purely a collection of web links/URLs without definitions.
+2. If educational, output exactly ONE LaTeX subsection.
 
-Omit fluff, irrelevant images, formatting details, and redundant information, course or assignment details. Focus on core concepts  and materials only.
+Layout & Conciseness Rules:
+- **Title Logic**: 
+  - If Term is short (<7 words), use it.
+  - If Term is a sentence, REWRITE it into a concise 1-4 word title.
+- **Structure**:
+  \\textbf{{[Short Title]}}: [Consolidated Summary]
+- **Style**: Telegraphic. Omit articles. Fragments. Max 3 lines.
+- **Content Filtering**: 
+  - **REMOVE ALL URLs/Links** (e.g., "https://...", "Link: ..."). This is for paper; digital links are useless.
+  - Merge sub-topics into one block.
 
-Output:
-Just output the concise summary or "SKIP" if unimportant. No explanations. No Answer of yes and no of whether it is important.
+LaTeX Formatting Rules:
+- **Escaping**: You MUST escape reserved chars: \\$ \\% \\& \\# \\_ (e.g., \\$100).
+- **Math**: Use $...$ ONLY for formulas (e.g., $O(n)$).
+- **Code**: Use \\texttt{{...}}.
+- **Lists**: Use inline bullets ($\\bullet$) to save vertical space. NO \\begin{{itemize}}.
+- **No Wrappers**: Do NOT use \\text{{}} or \\[ \\].
 """
         
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=300,
+            max_tokens=8192,
         )
         summary = response.choices[0].message.content.strip()
+        print(summary)
         
         # Check if LLM decided to skip this block
         if "SKIP" in summary.upper() or summary.lower().startswith("no"):
             return ""
         
-        return _sanitize_text_for_latex(summary, max_length=500)
+        return summary
     except Exception as e:
         print(f"[Generation] Warning: LLM block generation failed - {e}, using fallback")
-        return _sanitize_text_for_latex(node_description, max_length=500)
+        return node_description
 
 
 def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
     """Generate a LaTeX cheatsheet from clustered knowledge.
     
-    Layout: Multi-column format with sections by difficulty level.
+    Layout: Multi-column format with sections by difficulty   level.
     """
     
     latex_header = r"""
-\documentclass[8pt,a4paper,landscape]{article}
-
-\usepackage[margin=0.5in]{geometry}
+\documentclass[8pt,a4paper]{article}
+\usepackage[margin=0.5in,landscape]{geometry}
 \usepackage{multicol}
 \usepackage{fancyhdr}
 \usepackage{lastpage}
-\usepackage[most]{tcolorbox}
-\tcbuselibrary{breakable}
-\usepackage{xcolor}
+\usepackage{tcolorbox}
 \usepackage{hyperref}
-
-\color{black}
 
 \fancyhf{}
 \fancyhead[C]{\textbf{""" + _escape_latex(title) + r"""}}
@@ -126,40 +137,30 @@ def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{4pt}
 
-% Helps multi-column layouts look better when content breaks
-\raggedcolumns
-
 \tcbset{
-    enhanced,
-    breakable,
+    fonttitle=\bfseries,
     colback=white,
     colframe=gray!30,
-    coltext=black,
     boxrule=0.5pt,
     left=3pt,
     right=3pt,
     top=3pt,
     bottom=3pt,
-    fonttitle=\bfseries,
 }
 
-% Difficulty-colored section titles
-\newcommand{\difftext}[2]{%
-  \begingroup
-  \ifnum#1=0 \color{green!60!black}\fi
-  \ifnum#1=1 \color{blue!60!black}\fi
-  \ifnum#1=2 \color{orange!60!black}\fi
-  \ifnum#1>2 \color{red!60!black}\fi
-  #2%
-  \endgroup
+\newcommand{\diffcolor}[1]{%
+    \ifnum#1=0 \color{green!60!black}\else
+    \ifnum#1=1 \color{blue!60!black}\else
+    \ifnum#1=2 \color{orange!60!black}\else
+    \color{red!60!black}\fi\fi\fi
 }
 
 \begin{document}
+
 \thispagestyle{fancy}
 
 \begin{multicols}{3}
 """
-
     
     # Group nodes by difficulty
     nodes_by_difficulty: Dict[int, List] = {}
@@ -180,25 +181,16 @@ def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
         diff_obj = knowledge.node_to_difficulty.get(nodes[0].node_id)
         section_label = diff_obj.label if diff_obj else f"Level {difficulty_level}"
         
-        latex_content += f"\n\\subsection*{{\\difftext{{{difficulty_level}}}{{{_escape_latex(section_label)}}}}}\n"
+        latex_content += f"\n\\section{{{section_label}}}\n"
         
         for node in nodes:
-            node_title = _escape_latex(node.label)
             node_desc = _generate_block_with_llm(node.label, node.description, node.node_type)
             
             # Skip blocks with empty/unimportant content
             if not node_desc or node_desc.strip() == "":
                 continue
             
-            node_type = _escape_latex(node.node_type)
-            
-            latex_content += f"""
-\\begin{{tcolorbox}}[title={node_title}, breakable]
-\\textit{{{node_type}}} \\\\
-{node_desc}
-\\end{{tcolorbox}}
-"""
-
+            latex_content += node_desc + "\\\\[0.2cm]\n"
     
     latex_content += r"""
 \end{multicols}
