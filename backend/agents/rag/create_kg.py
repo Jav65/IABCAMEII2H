@@ -47,13 +47,16 @@ def create_rag(
             "and set up your LLM client (OpenAI-compatible)."
         ) from e
 
-    mname = model_name or config.model_path
+    mname = "text-embedding-3-small"#model_name or config.model_path
 
-    client = OpenAI(base_url=base_url, api_key=api_key)
-    llm_generator = LLMGenerator(client=client, model_name=mname)
+    client = OpenAI(
+        # base_url = "https://api.deepinfra.com/v1/openai",
+        api_key = api_key
+    ) #base_url=base_url, api_key=api_key)
+    llm_generator = LLMGenerator(client=client, model_name="text-embedding-3-small")
 
     kg_extraction_config = ProcessingConfig(
-        model_path=config.model_path,
+        model_path=mname, #config.model_path,
         data_directory=config.data_directory,
         filename_pattern=config.filename_pattern,
         output_directory=config.output_directory,
@@ -65,7 +68,6 @@ def create_rag(
     )
 
     kg_extractor = KnowledgeGraphExtractor(model=llm_generator, config=kg_extraction_config)
-
     # Pipeline (as documented)
     kg_extractor.run_extraction()
     kg_extractor.convert_json_to_csv()

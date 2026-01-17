@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import datetime as _dt
 import os
+from dotenv import load_dotenv
 from pathlib import Path
 from typing import Dict, List, Optional
+
+load_dotenv()  # take environment variables from .env file if present
 
 from backend.agents.types import (
     GeneratedOutput,
@@ -117,7 +120,8 @@ def run_pipeline(
     if run_atlasrag:
         print(f"[Pipeline] Phase 2: Running Atlas-RAG KG extraction...")
         from backend.agents.rag import RAGConfig, create_rag
-
+        atlasrag_api_key = os.environ.get("OPENAI_API_KEY")
+        print(f"Using OPENAI_API_KEY: {atlasrag_api_key}")
         if not atlasrag_base_url: #or not atlasrag_api_key:
             raise ValueError(
                 "run_atlasrag=True requires atlasrag_base_url and atlasrag_api_key (OpenAI-compatible endpoint)."
@@ -173,9 +177,17 @@ def run_pipeline(
             # =====================================================================
             print(f"[Pipeline] Phase 4: Generating {output_format} for {cat}...")
             
+            # Standard template-based generation (always)
+            request = GenerationRequest(
+                output_format=output_format,
+                clustered_knowledge=clustered,
+                title=f"{cat} - Study Guide",
+            )
+            output = generate_output(request, out_dir)
+            
+            # Attempt agentic refinement (optional, non-blocking)
             if output_format == "cheatsheet" and use_agentic:
-                # Use agentic system for cheatsheet generation
-                print(f"[Pipeline] Using agentic system (model: {agentic_model})...")
+                print(f"[Pipeline] Attempting agentic refinement (model: {agentic_model})...")
                 from backend.agents.agentic_cheatsheet import generate_agentic_cheatsheet
                 
                 try:
@@ -196,22 +208,9 @@ def run_pipeline(
                         },
                         output_file=str(out_dir / f"{cat}_cheatsheet_agentic.tex"),
                     )
+                    print(f"[Pipeline] ✓ Agentic refinement succeeded")
                 except Exception as e:
-                    print(f"[Pipeline] Agentic generation failed: {e}. Falling back to template-based...")
-                    request = GenerationRequest(
-                        output_format=output_format,
-                        clustered_knowledge=clustered,
-                        title=f"{cat} - Study Guide",
-                    )
-                    output = generate_output(request, out_dir)
-            else:
-                # Standard template-based generation
-                request = GenerationRequest(
-                    output_format=output_format,
-                    clustered_knowledge=clustered,
-                    title=f"{cat} - Study Guide",
-                )
-                output = generate_output(request, out_dir)
+                    print(f"[Pipeline] ⚠️  Agentic refinement skipped ({type(e).__name__})")
             
             outputs_by_category[cat] = output
             print(f"[Pipeline] Generated {output_format} for {cat}")

@@ -56,7 +56,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--agentic-model",
-        default="gpt-4-turbo-preview",
+        default="gpt-4o-mini",
         help="LLM model for agentic generation (if --use-agentic is set)",
     )
 
