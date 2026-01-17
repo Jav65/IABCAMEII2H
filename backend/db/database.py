@@ -5,12 +5,13 @@ from typing import Optional, Tuple
 
 
 class DatabaseManager:
-    def __init__(self, db_path: str = "db/sqlite.db"):
+    def __init__(self, db_path: str = "db/sqlite.db", init: bool = False):
         """Initialize the database manager with the given database path."""
         self.db_path = Path(db_path)
         # Create the db directory if it doesn't exist
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.init_db()
+        if init:
+            self.init_db()
 
     def get_connection(self):
         """Get a connection to the database."""
@@ -21,10 +22,10 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             # Drop the old table if it exists (with old schema)
-            cursor.execute('DROP TABLE IF EXISTS session')
+            cursor.execute('DROP TABLE IF EXISTS sessions')
             # Create the new table with updated schema
             cursor.execute('''
-                CREATE TABLE IF NOT EXISTS session (
+                CREATE TABLE IF NOT EXISTS sessions (
                     id TEXT PRIMARY KEY,
                     tex_id TEXT,
                     pdf_id TEXT
@@ -39,7 +40,7 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO session (id, tex_id, pdf_id) VALUES (?, ?, ?)",
+                "INSERT INTO sessions (id, tex_id, pdf_id) VALUES (?, ?, ?)",
                 (session_id, tex_id, pdf_id)
             )
             conn.commit()
@@ -51,7 +52,7 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT id, tex_id, pdf_id FROM session WHERE id = ?",
+                "SELECT id, tex_id, pdf_id FROM sessions WHERE id = ?",
                 (session_id,)
             )
             return cursor.fetchone()
@@ -70,7 +71,7 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE session SET tex_id = ?, pdf_id = ? WHERE id = ?",
+                "UPDATE sessions SET tex_id = ?, pdf_id = ? WHERE id = ?",
                 (new_tex, new_pdf, session_id)
             )
             conn.commit()
@@ -80,7 +81,7 @@ class DatabaseManager:
         """Delete a session record. Returns True if deleted, False if not found."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM session WHERE id = ?", (session_id,))
+            cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
             conn.commit()
             return cursor.rowcount > 0
 
@@ -88,7 +89,7 @@ class DatabaseManager:
         """Get all session records."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, tex_id, pdf_id FROM session")
+            cursor.execute("SELECT id, tex_id, pdf_id FROM sessions")
             return cursor.fetchall()
 
 
