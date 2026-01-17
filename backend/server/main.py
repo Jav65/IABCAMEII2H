@@ -1,14 +1,18 @@
 import asyncio
+from urllib import request
 import uuid
 from typing import AsyncGenerator
 import json
 import tempfile
 import zipfile
+import subprocess, tempfile, json, shutil
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
+from workers.tex_to_pdf import parse_synctex, run_latex
 from pydantic import BaseModel
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
+from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from .utils import file_iterator
 import db
@@ -21,6 +25,13 @@ from agents.main import runner as agent_runner
 # Initialize FastAPI app
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],         # or list of specific origins
+    allow_credentials=True,
+    allow_methods=["*"],         # allows OPTIONS, GET, POST, etc.
+    allow_headers=["*"],
+)
 
 class SessionCreate(BaseModel):
     """Request body for creating a new session"""
@@ -320,6 +331,44 @@ async def end_session_stream(session_id: str) -> None:
     for queue in session_queues[session_id]:
         await queue.put({ "event": "end" })
     session_queues.pop(session_id, None)
+
+
+@app.post("/compile")
+async def compile_live(request: Request):
+    payload = await request.json()
+    source = payload.get("source")
+    if not isinstance(source, str) or not source.strip():
+        return JSONResponse({"error": "Missing LaTeX source"}, status_code=400)
+
+    try:
+        result = run_latex(source)
+    except subprocess.CalledProcessError as exc:
+        output = (
+            exc.stdout.decode("utf-8", "ignore")
+            if isinstance(exc.stdout, (bytes, bytearray))
+            else str(exc.stdout)
+        )
+        return JSONResponse(
+            {"error": "LaTeX compilation failed", "details": output},
+            status_code=400,
+        )
+    except Exception as exc:
+        return JSONResponse(
+            {"error": "Server error", "details": str(exc)},
+            status_code=500,
+        )
+
+    mappings = parse_synctex(result["synctex"])
+    shutil.rmtree(result["tmpdir"], ignore_errors=True)
+
+    return JSONResponse(
+        {
+            "source": source,
+            "pdf": result["pdf"],
+            "synctex": result["synctex"],
+            "mappings": mappings,
+        }
+    )
 
 
 if __name__ == "__main__":
