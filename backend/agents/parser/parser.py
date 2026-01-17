@@ -6,6 +6,7 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List
+import pickle as pkl
 
 from dotenv import load_dotenv
 
@@ -188,8 +189,24 @@ Rules:
             )
 
         print(f"[Parser] Extracted {len(pages)} page groups from {p.name}")
+
+        with open("test_data/pages.pkl", "wb") as f:
+            pkl.dump(pages, f)
+
         return pages
 
     except Exception as e:
         print(f"[Parser] LLM extraction failed for {p}: {e}")
         return []
+    
+def parse_pdf(
+    source_path: str | Path,
+    category: ImportantCategory,
+    out_image_dir: str | Path,
+    doc_id_prefix: str | None = None,
+    options: ParseOptions | None = None,
+) -> List[PageContent]:
+    
+    with open("test_data/pages.pkl", "rb") as f:
+        pages = pkl.load(f)
+    return pages
