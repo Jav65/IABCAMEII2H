@@ -77,29 +77,30 @@ def parse_pdf(
             print(f"[Parser] Failed to upload PDF to OpenAI: {e}")
             return []
 
-        prompt = """You are a document extraction and analysis system. Process this PDF document.
+        prompt = """You are an expert Cheatsheet Content Extractor. Process this PDF document to isolate high-signal, examinable material.
 
 Tasks:
-1. Identify logical page groups (consecutive pages covering same topic)
-2. Extract text from each group, correcting ALL typos and spelling errors
-3. Merge pages that are topically related
-4. Skip pages that are unimportant (blank, pure formatting, page numbers, footers only)
-5. Return SKIP for any page group that contains only unimportant information
+1. Identify logical page groups (consecutive pages covering the same core concept).
+2. Extract ONLY the core technical content, definitions, formulas, and explanations.
+3. Aggressively filter out non-examinable metadata: lecturer names, course codes, office hours, syllabus outlines, administrative announcements, title slides, acknowledgments, and repetitive headers/footers.
+4. Merge pages that are topically related.
+5. Return SKIP for any page group that lacks technical substance (e.g., purely administrative pages, title pages, or course logistics).
 
 Return ONLY a valid JSON object:
 {
   "page_groups": [
-    {"pages": [1, 2], "content": "Extracted text with typos corrected", "topic": "Topic label"},
-    {"pages": [3], "content": "SKIP", "topic": "Optional label"}
+    {"pages": [1, 2], "content": "Cleaned, typo-corrected technical text...", "topic": "Topic label"},
+    {"pages": [3], "content": "SKIP", "topic": "Administrative/Title"}
   ]
 }
 
 Rules:
-- If content is unimportant, set content to "SKIP"
-- Correct all typos and spelling mistakes
-- Merge consecutive pages about the same topic
-- Each group must have pages list, content, and topic
-- Return ONLY the JSON, no markdown or explanation"""
+- IF content is purely administrative (Course intro, Lecturer bio, Grading criteria), set content to "SKIP".
+- Remove all "housekeeping" text (e.g., "Any questions?", "Next week we will cover...").
+- Correct all typos and spelling mistakes.
+- Merge consecutive pages about the same topic.
+- Content string must be dense and fact-focused, ready for summarization.
+- Return ONLY the JSON, no markdown or explanation."""
 
         try:
             # Use Responses API with input_file
