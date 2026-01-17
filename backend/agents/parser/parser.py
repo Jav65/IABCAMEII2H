@@ -190,7 +190,7 @@ Rules:
 
         print(f"[Parser] Extracted {len(pages)} page groups from {p.name}")
 
-        with open("test_data/pages.pkl", "wb") as f:
+        with open(f"test_data/pages_{Path(source_path).stem}.pkl", "wb") as f:
             pkl.dump(pages, f)
 
         return pages
@@ -207,6 +207,6 @@ def parse_pdf(
     options: ParseOptions | None = None,
 ) -> List[PageContent]:
     
-    with open("test_data/pages.pkl", "rb") as f:
+    with open(f"test_data/pages_{Path(source_path).stem}.pkl", "rb") as f:
         pages = pkl.load(f)
     return pages

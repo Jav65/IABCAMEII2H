@@ -46,6 +46,8 @@ class LLMAnalyzer:
                 category=document.get('category', 'Lectures'),
                 out_image_dir=document.get('out_image_dir', './images'),
             )
+
+            
             # LLM-based extraction already merges pages and filters unimportant content
         except Exception as e:
             print(f"Warning: Failed to parse {document.get('source_path')} - {e}")
