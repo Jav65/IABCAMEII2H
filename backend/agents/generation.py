@@ -70,21 +70,21 @@ Type: {node_type}
 Content: {node_description}
 
 Task:
-Evaluate the educational value of the content.
-1. If the content is NOT important or educational, respond strictly with: SKIP
-2. If the content IS important, provide a 1-2 sentence concise definition/explanation formatted in LaTeX.
-   - Write standard text directly (do NOT wrap sentences in \\text{{}}, \\[ \\], or \\( \\)).
-   - Escape ALL LaTeX reserved characters in text (e.g., write \\$ for $, \\% for %, \\& for &, \\# for #, \\_ for _).
-   - Use \\texttt{{...}} for code snippets, commands, file paths, or URLs.
-   - Use $...$ ONLY for actual mathematical formulas or variables (e.g., $x=5$).
-   - **For lists:** Use the \\begin{{itemize}} ... \\end{{itemize}} environment with \\item for each point.
-   - Omit fluff, images, and redundant details."""
+1. Is this content important and educational and relevant to "Information Security"? (yes/no)
+2. If yes, provide a concise definition/explanation.
+3. If no, respond with: SKIP
+
+Omit fluff, irrelevant images, formatting details, and redundant information, course or assignment details. Focus on core concepts  and materials only.
+
+Output:
+Just output the concise summary or "SKIP" if unimportant. No explanations. No Answer of yes and no of whether it is important.
+"""
         
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=200,
+            max_tokens=300,
         )
         summary = response.choices[0].message.content.strip()
         
@@ -92,10 +92,10 @@ Evaluate the educational value of the content.
         if "SKIP" in summary.upper() or summary.lower().startswith("no"):
             return ""
         
-        return summary
+        return _sanitize_text_for_latex(summary, max_length=500)
     except Exception as e:
         print(f"[Generation] Warning: LLM block generation failed - {e}, using fallback")
-        return node_description
+        return _sanitize_text_for_latex(node_description, max_length=500)
 
 
 def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
@@ -105,13 +105,18 @@ def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
     """
     
     latex_header = r"""
-\documentclass[10pt,a4paper]{article}
-\usepackage[margin=0.5in,landscape]{geometry}
+\documentclass[8pt,a4paper,landscape]{article}
+
+\usepackage[margin=0.5in]{geometry}
 \usepackage{multicol}
 \usepackage{fancyhdr}
 \usepackage{lastpage}
-\usepackage{tcolorbox}
+\usepackage[most]{tcolorbox}
+\tcbuselibrary{breakable}
+\usepackage{xcolor}
 \usepackage{hyperref}
+
+\color{black}
 
 \fancyhf{}
 \fancyhead[C]{\textbf{""" + _escape_latex(title) + r"""}}
@@ -121,30 +126,40 @@ def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{4pt}
 
+% Helps multi-column layouts look better when content breaks
+\raggedcolumns
+
 \tcbset{
-    fonttitle=\bfseries,
+    enhanced,
+    breakable,
     colback=white,
     colframe=gray!30,
+    coltext=black,
     boxrule=0.5pt,
     left=3pt,
     right=3pt,
     top=3pt,
     bottom=3pt,
+    fonttitle=\bfseries,
 }
 
-\newcommand{\diffcolor}[1]{%
-    \ifnum#1=0 \color{green!60!black}\else
-    \ifnum#1=1 \color{blue!60!black}\else
-    \ifnum#1=2 \color{orange!60!black}\else
-    \color{red!60!black}\fi\fi\fi
+% Difficulty-colored section titles
+\newcommand{\difftext}[2]{%
+  \begingroup
+  \ifnum#1=0 \color{green!60!black}\fi
+  \ifnum#1=1 \color{blue!60!black}\fi
+  \ifnum#1=2 \color{orange!60!black}\fi
+  \ifnum#1>2 \color{red!60!black}\fi
+  #2%
+  \endgroup
 }
 
 \begin{document}
-
 \thispagestyle{fancy}
 
 \begin{multicols}{3}
 """
+
     
     # Group nodes by difficulty
     nodes_by_difficulty: Dict[int, List] = {}
@@ -165,7 +180,7 @@ def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
         diff_obj = knowledge.node_to_difficulty.get(nodes[0].node_id)
         section_label = diff_obj.label if diff_obj else f"Level {difficulty_level}"
         
-        latex_content += f"\n\\section{{{section_label}}}\n"
+        latex_content += f"\n\\subsection*{{\\difftext{{{difficulty_level}}}{{{_escape_latex(section_label)}}}}}\n"
         
         for node in nodes:
             node_title = _escape_latex(node.label)
@@ -178,9 +193,12 @@ def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> str:
             node_type = _escape_latex(node.node_type)
             
             latex_content += f"""
-\\subsection{{{node_title}}}
+\\begin{{tcolorbox}}[title={node_title}, breakable]
+\\textit{{{node_type}}} \\\\
 {node_desc}
+\\end{{tcolorbox}}
 """
+
     
     latex_content += r"""
 \end{multicols}

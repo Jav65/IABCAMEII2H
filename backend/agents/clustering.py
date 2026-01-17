@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from backend.agents.types import ClusteredKnowledge, DifficultyLevel, KGEdge, KGNode, ImportantCategory
 
@@ -36,6 +36,122 @@ EXPERT_KEYWORDS = {
     "cutting edge", "research frontier", "novel approach", "proprietary",
     "experimental", "specialized variant", "micro-optimization"
 }
+
+
+def _compute_text_similarity(text1: str, text2: str) -> float:
+    """Compute text similarity based on word overlap (Jaccard similarity).
+    
+    Returns a score between 0 and 1.
+    """
+    if not text1 or not text2:
+        return 0.0
+    
+    words1 = set(text1.lower().split())
+    words2 = set(text2.lower().split())
+    
+    if not words1 or not words2:
+        return 0.0
+    
+    intersection = len(words1 & words2)
+    union = len(words1 | words2)
+    
+    return intersection / union if union > 0 else 0.0
+
+
+def _semantic_cluster_nodes(nodes: List[KGNode], similarity_threshold: float = 0.3) -> Dict[str, List[KGNode]]:
+    """Cluster nodes by semantic similarity.
+    
+    Groups nodes with similar labels and descriptions together.
+    
+    Args:
+        nodes: List of KGNode objects
+        similarity_threshold: Minimum similarity score to group nodes
+        
+    Returns:
+        Dict mapping cluster_id -> list of nodes in that cluster
+    """
+    clusters = {}
+    cluster_counter = 0
+    assigned = set()
+    
+    for i, node_i in enumerate(nodes):
+        if node_i.node_id in assigned:
+            continue
+        
+        # Start new cluster with this node
+        cluster_id = f"cluster_{cluster_counter}"
+        cluster_nodes = [node_i]
+        assigned.add(node_i.node_id)
+        cluster_counter += 1
+        
+        # Find similar nodes
+        combined_text_i = f"{node_i.label} {node_i.description}".lower()
+        
+        for j, node_j in enumerate(nodes[i+1:], start=i+1):
+            if node_j.node_id in assigned:
+                continue
+            
+            combined_text_j = f"{node_j.label} {node_j.description}".lower()
+            similarity = _compute_text_similarity(combined_text_i, combined_text_j)
+            
+            if similarity >= similarity_threshold:
+                cluster_nodes.append(node_j)
+                assigned.add(node_j.node_id)
+        
+        clusters[cluster_id] = cluster_nodes
+    
+    return clusters
+
+
+def _extract_cluster_main_topic(cluster_nodes: List[KGNode]) -> str:
+    """Extract main topic for a cluster using LLM.
+    
+    Summarizes the cluster's content into a single main topic.
+    """
+    if not cluster_nodes:
+        return "Unknown Topic"
+    
+    if len(cluster_nodes) == 1:
+        return cluster_nodes[0].label
+    
+    try:
+        from backend.agents.generation import _extract_topic
+        
+        node_summaries = [f"- {node.label}: {node.description[:100]}" for node in cluster_nodes]
+        combined_text = "\n".join(node_summaries)
+        
+        main_topic = _extract_topic(combined_text)
+        return main_topic if main_topic else cluster_nodes[0].label
+    except Exception as e:
+        print(f"Warning: Could not extract main topic with LLM - {e}, using heuristic")
+        # Fallback: use the most descriptive node's label
+        return max(cluster_nodes, key=lambda n: len(n.description or "")).label
+
+
+def _infer_cluster_difficulty(main_topic: str, cluster_nodes: List[KGNode]) -> int:
+    """Infer difficulty level for a cluster based on its main topic and nodes.
+    
+    Returns:
+        0: Fundamental
+        1: Intermediate
+        2: Advanced
+        3+: Expert
+    """
+    combined_text = main_topic + " " + " ".join([n.label + " " + n.description for n in cluster_nodes])
+    combined_text = combined_text.lower()
+    
+    expert_count = sum(1 for kw in EXPERT_KEYWORDS if kw in combined_text)
+    advanced_count = sum(1 for kw in ADVANCED_KEYWORDS if kw in combined_text)
+    intermediate_count = sum(1 for kw in INTERMEDIATE_KEYWORDS if kw in combined_text)
+    
+    if expert_count >= 1:
+        return 3
+    elif advanced_count >= 2:
+        return 2
+    elif intermediate_count >= 1:
+        return 1
+    else:
+        return 0
 
 
 def infer_node_difficulty(node: KGNode, context_edges: List[KGEdge]) -> int:
@@ -151,29 +267,49 @@ def cluster_by_difficulty(
     edges: List[KGEdge],
     category: ImportantCategory,
 ) -> ClusteredKnowledge:
-    """Cluster knowledge graph nodes by difficulty level and rank them.
+    """Revised clustering pipeline:
     
-    1. Infer difficulty from node properties
-    2. Refine using graph structure analysis
-    3. Perform topological ordering within each difficulty level
-    4. Return clustered knowledge ranked from basic to advanced
+    1. Create semantic clusters of similar nodes
+    2. Extract main topic for each cluster using LLM
+    3. Assign difficulty to clusters (not individual nodes)
+    4. Order clusters from basic to advanced
+    5. Return ordered ClusteredKnowledge with cluster metadata
     """
     
-    # Step 1: Keyword-based difficulty inference
-    node_to_difficulty = {
-        node.node_id: infer_node_difficulty(node, edges)
-        for node in nodes
-    }
+    if not nodes:
+        return ClusteredKnowledge(
+            nodes=[],
+            edges=[],
+            node_to_difficulty={},
+            category=category,
+            cluster_metadata={},
+        )
     
-    # Step 2: Refine using graph structure
-    structural_scores = analyze_graph_structure(nodes, edges)
-    for node_id in node_to_difficulty:
-        # Blend keyword-based and structural scores
-        keyword_score = node_to_difficulty[node_id]
-        structural_score = structural_scores.get(node_id, 0)
-        node_to_difficulty[node_id] = max(keyword_score, structural_score)
+    # Step 1: Semantic clustering
+    print("[Clustering] Step 1: Performing semantic clustering...")
+    semantic_clusters = _semantic_cluster_nodes(nodes, similarity_threshold=0.3)
+    print(f"[Clustering] Created {len(semantic_clusters)} semantic clusters")
     
-    # Step 3: Create DifficultyLevel objects
+    # Step 2: Extract main topics and assign cluster difficulty
+    print("[Clustering] Step 2: Extracting main topics and inferring cluster difficulty...")
+    cluster_to_main_topic = {}
+    cluster_to_difficulty = {}
+    node_id_to_cluster = {}
+    
+    for cluster_id, cluster_nodes in semantic_clusters.items():
+        main_topic = _extract_cluster_main_topic(cluster_nodes)
+        cluster_to_main_topic[cluster_id] = main_topic
+        
+        difficulty_level = _infer_cluster_difficulty(main_topic, cluster_nodes)
+        cluster_to_difficulty[cluster_id] = difficulty_level
+        
+        for node in cluster_nodes:
+            node_id_to_cluster[node.node_id] = cluster_id
+        
+        print(f"  Cluster {cluster_id}: '{main_topic}' (difficulty: {difficulty_level})")
+    
+    # Step 3: Create difficulty level objects for nodes based on their cluster
+    print("[Clustering] Step 3: Assigning difficulty levels to nodes...")
     difficulty_labels = {
         0: "Fundamentals",
         1: "Core Concepts",
@@ -181,31 +317,53 @@ def cluster_by_difficulty(
         3: "Expert Knowledge",
     }
     
-    node_to_difficulty_obj = {
-        node_id: DifficultyLevel(
-            level=level,
-            label=difficulty_labels.get(level, f"Level {level}"),
+    node_to_difficulty_obj = {}
+    for node in nodes:
+        cluster_id = node_id_to_cluster.get(node.node_id)
+        cluster_diff = cluster_to_difficulty.get(cluster_id, 0)
+        node_to_difficulty_obj[node.node_id] = DifficultyLevel(
+            level=cluster_diff,
+            label=difficulty_labels.get(cluster_diff, f"Level {cluster_diff}"),
         )
-        for node_id, level in node_to_difficulty.items()
-    }
     
-    # Step 4: Topological ordering for better reading flow
-    topo_order = _topological_sort(nodes, edges)
-    
-    # Sort nodes: first by difficulty, then by topological order
-    sorted_nodes = sorted(
-        nodes,
-        key=lambda n: (
-            node_to_difficulty.get(n.node_id, 0),
-            topo_order.index(n.node_id) if n.node_id in topo_order else float('inf')
-        )
+    # Step 4: Order clusters from basic to advanced
+    print("[Clustering] Step 4: Ordering clusters by difficulty...")
+    sorted_clusters = sorted(
+        semantic_clusters.items(),
+        key=lambda item: cluster_to_difficulty[item[0]]
     )
     
+    # Step 5: Build ordered node list preserving cluster grouping
+    print("[Clustering] Step 5: Building ordered node list...")
+    ordered_nodes = []
+    cluster_metadata = {}
+    
+    for cluster_id, cluster_nodes in sorted_clusters:
+        ordered_nodes.extend(cluster_nodes)
+        
+        # Store cluster metadata for use in generation
+        cluster_metadata[cluster_id] = {
+            "main_topic": cluster_to_main_topic[cluster_id],
+            "difficulty": cluster_to_difficulty[cluster_id],
+            "node_ids": [node.node_id for node in cluster_nodes],
+            "node_count": len(cluster_nodes),
+        }
+    
+    # Add cluster metadata to node properties for reference
+    for node in ordered_nodes:
+        cluster_id = node_id_to_cluster.get(node.node_id)
+        if cluster_id:
+            node.properties["cluster_id"] = cluster_id
+            node.properties["cluster_main_topic"] = cluster_to_main_topic[cluster_id]
+    
+    print(f"[Clustering] Complete! Ordered into {len(sorted_clusters)} difficulty-ranked clusters")
+    
     return ClusteredKnowledge(
-        nodes=sorted_nodes,
+        nodes=ordered_nodes,
         edges=edges,
         node_to_difficulty=node_to_difficulty_obj,
         category=category,
+        cluster_metadata=cluster_metadata,
     )
 
 

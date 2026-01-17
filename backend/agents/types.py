@@ -77,6 +77,7 @@ class DifficultyLevel:
 
 
 @dataclass
+@dataclass
 class ClusteredKnowledge:
     """Knowledge clustered and ranked by difficulty."""
     
@@ -84,6 +85,7 @@ class ClusteredKnowledge:
     edges: List[KGEdge]
     node_to_difficulty: Dict[str, DifficultyLevel]  # maps node_id to difficulty
     category: ImportantCategory
+    cluster_metadata: Dict[str, Dict[str, Any]] = field(default_factory=dict)  # cluster_id -> {main_topic, difficulty, nodes}
     
     
 @dataclass
