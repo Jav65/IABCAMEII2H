@@ -3,8 +3,8 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Tuple
 
-from backend.agents.types import ClusteredKnowledge
-from backend.agents.clustering import KnowledgeGraphBuilder, Clusterer
+from agents.types import ClusteredKnowledge
+from agents.clustering import KnowledgeGraphBuilder, Clusterer
 
 
 class LLMAnalyzer:
@@ -23,7 +23,7 @@ class LLMAnalyzer:
             Dict with 'topics', 'important_points', 'source'
         """
         try:
-            from backend.agents.parser import parse_pdf
+            from agents.parser import parse_pdf
         except Exception as e:
             print(f"Warning: Could not import parser - {e}")
             return {
@@ -102,7 +102,7 @@ class CheatsheetGenerator:
         title = getattr(ordered_nodes, "category", "Study Cheatsheet")
 
         try:
-            from backend.agents.generation import _generate_cheatsheet
+            from agents.generation import _generate_cheatsheet
             return _generate_cheatsheet(ordered_nodes, title)
         except Exception as e:
             print(f"Warning: LLM generation failed - {e}, using fallback")

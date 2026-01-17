@@ -13,7 +13,7 @@ import pymupdf4llm
 
 from dotenv import load_dotenv
 
-from backend.agents.types import PageContent, ImportantCategory
+from agents.types import PageContent, ImportantCategory
 
 # Suppress pypdf warnings about corrupted objects
 warnings.filterwarnings("ignore", category=UserWarning, module="pypdf")

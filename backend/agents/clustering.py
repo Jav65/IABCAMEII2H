@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from backend.agents.types import ClusteredKnowledge, DifficultyLevel, KGEdge, KGNode, ImportantCategory
+from agents.types import ClusteredKnowledge, DifficultyLevel, KGEdge, KGNode, ImportantCategory
 
 
 # Keywords/patterns that indicate difficulty level
@@ -115,7 +115,7 @@ def _extract_cluster_main_topic(cluster_nodes: List[KGNode]) -> str:
         return cluster_nodes[0].label
     
     try:
-        from backend.agents.generation import _extract_topic
+        from agents.generation import _extract_topic
         
         node_summaries = [f"- {node.label}: {node.description[:100]}" for node in cluster_nodes]
         combined_text = "\n".join(node_summaries)

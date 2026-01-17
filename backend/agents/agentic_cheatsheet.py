@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from backend.agents.types import ClusteredKnowledge
+from agents.types import ClusteredKnowledge
 
 
 def _get_openai_client():

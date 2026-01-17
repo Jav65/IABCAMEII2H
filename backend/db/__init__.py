@@ -6,7 +6,9 @@ from .database import (
     get_session,
     update_session,
     delete_session,
-    list_sessions
+    list_sessions,
+    add_resources,
+    list_resources,
 )
 
 __all__ = [
@@ -15,5 +17,7 @@ __all__ = [
     'get_session',
     'update_session',
     'delete_session',
-    'list_sessions'
+    'list_sessions',
+    'add_resources',
+    'list_resources',
 ]

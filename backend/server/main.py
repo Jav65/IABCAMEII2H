@@ -5,14 +5,17 @@ import json
 import tempfile
 import zipfile
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor
 from pydantic import BaseModel
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 
 from .utils import file_iterator
 import db
 from db.database import Session
 import storage
+
+from agents.main import runner as agent_runner
 
 
 # Initialize FastAPI app
@@ -25,7 +28,7 @@ class SessionCreate(BaseModel):
 
 
 # In-memory storage for sessions and their associated queues
-session_queues: dict[str, asyncio.Queue] = {}
+session_queues: dict[str, list[asyncio.Queue]] = {}
 
 
 def create_session_id() -> str:
@@ -33,11 +36,13 @@ def create_session_id() -> str:
     return str(uuid.uuid4())
 
 
-def get_or_create_queue(session_id: str) -> asyncio.Queue:
+def create_queue(session_id: str) -> asyncio.Queue:
     """Get or create a queue for a session, also initializes the session state"""
     if session_id not in session_queues:
-        session_queues[session_id] = asyncio.Queue()
-    return session_queues[session_id]
+        session_queues[session_id] = []
+    queue = asyncio.Queue()
+    session_queues[session_id].append(queue)
+    return queue
 
 
 def extract_zip_recursive(zip_path: Path, extract_to: Path) -> list[Path]:
@@ -98,6 +103,53 @@ async def process_uploaded_file(file: UploadFile, temp_dir: Path) -> list[Path]:
         return [file_path]
 
 
+# Process pool for running blocking agent pipeline
+agent_process_pool = ProcessPoolExecutor()
+
+async def run_agent_pipeline(session_id: str):
+    """
+    Run the agent pipeline for the given session ID.
+    This is a blocking call and should be run in a separate process.
+    In this case, we pass it to a ProcessPoolExecutor.
+    """
+    try:
+        # Get session from database
+        session = db.get_session(session_id)
+        if session is None:
+            raise ValueError(f"Session {session_id} not found")
+
+        # TODO: This is a placeholder until an agent to group the data is ready.
+        grouped = {
+            "Lectures": [storage.get_resource(res_id) for res_id in db.list_resources(session_id)],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_output_dir_str:
+            temp_output_dir = Path(temp_output_dir_str)
+            await asyncio.get_running_loop().run_in_executor(
+                agent_process_pool,
+                agent_runner,
+                grouped,
+                session.format,
+                temp_output_dir,
+            )
+
+            # After running, upload the generated TeX file
+            output_tex_path = temp_output_dir / "main.tex"
+            if not output_tex_path.exists():
+                raise ValueError("Agent pipeline did not produce expected output")
+            
+            tex_id = storage.upload_tex_from(str(output_tex_path))
+
+        # Update session with tex_id
+        db.update_session(session_id, tex_id=tex_id)
+
+        # Notify to client that processing is complete
+        await push_event_to_session(session_id, { "event": "tex_ready", "tex_id": tex_id })
+    except Exception as e:
+        # Notify client of error
+        await push_event_to_session(session_id, { "event": "error", "message": str(e) })
+
+
 async def event_stream(session_id: str) -> AsyncGenerator[str, None]:
     """
     Generator that yields server-side events from a session's queue.
@@ -111,7 +163,7 @@ async def event_stream(session_id: str) -> AsyncGenerator[str, None]:
     
     Send a None value to signal end of stream.
     """
-    queue = get_or_create_queue(session_id)
+    queue = create_queue(session_id)
 
     try:
         while True:
@@ -122,13 +174,14 @@ async def event_stream(session_id: str) -> AsyncGenerator[str, None]:
 
     except Exception as e:
         # Send error event (client needs to reload)
-        yield "data: {\"event\": \"error\"}\n\n"
+        event_json = json.dumps({ "event": "unexpected_error", "message": str(e) })
+        yield f"data: {event_json}\n\n"
 
 
 @app.post("/session", response_model=Session)
 async def create_session(
-    name: str,
-    format: str,
+    name: str = Form(...),
+    format: str = Form(...),
     files: list[UploadFile] = File(...)
 ) -> Session:
     """Create a new session with uploaded files"""
@@ -150,13 +203,12 @@ async def create_session(
             resource_id = storage.upload_resource_from(str(file_path))
             resource_ids.append(resource_id)
     
-    # Create session in database
+    # Create session and resources in database
     session = db.create_session(name=name, format=format)
-    
-    # Initialize queue for this session
-    get_or_create_queue(session.id)
-    
-    # TODO: Send job to agent to start processing the resource_ids
+    db.add_resources(session.id, resource_ids)
+
+    # Send job to agent to start processing the resource_ids
+    asyncio.create_task(run_agent_pipeline(session.id))
 
     return session
 
@@ -255,11 +307,8 @@ async def push_event_to_session(session_id: str, event: dict) -> None:
         session_id: The session ID to push to
         event: The event data (dict)
     """
-    if session_id not in session_queues:
-        get_or_create_queue(session_id)
-    
-    queue = session_queues[session_id]
-    await queue.put(event)
+    for queue in session_queues[session_id]:
+        await queue.put(event)
 
 
 async def end_session_stream(session_id: str) -> None:
@@ -268,9 +317,9 @@ async def end_session_stream(session_id: str) -> None:
     
     This should be called when no more events will be sent.
     """
-    if session_id in session_queues:
-        queue = session_queues[session_id]
+    for queue in session_queues[session_id]:
         await queue.put({ "event": "end" })
+    session_queues.pop(session_id, None)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 """Agents package for cheatsheet generation pipeline."""
 
-from backend.agents.pipeline import (
+from agents.pipeline import (
     Pipeline,
     LLMAnalyzer,
     KnowledgeGraphBuilder,
@@ -8,7 +8,7 @@ from backend.agents.pipeline import (
     Orderer,
     CheatsheetGenerator,
 )
-from backend.agents.types import (
+from agents.types import (
     ClusteredKnowledge,
     DifficultyLevel,
     GeneratedOutput,

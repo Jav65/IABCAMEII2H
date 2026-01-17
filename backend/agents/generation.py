@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from backend.agents.types import ClusteredKnowledge, GeneratedOutput, GenerationRequest, OutputFormat
+from agents.types import ClusteredKnowledge, GeneratedOutput, GenerationRequest, OutputFormat
 
 load_dotenv()
 
