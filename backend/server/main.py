@@ -10,9 +10,9 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 
 from .utils import file_iterator
-from db import database as db
+import db
 from db.database import Session
-from storage import storage_manager as storage
+import storage
 
 
 # Initialize FastAPI app

@@ -6,7 +6,7 @@ Script to clean the database by dropping all tables.
 import sys
 from pathlib import Path
 
-from db.database import DatabaseManager
+from db import DatabaseManager
 
 
 def clean_database():

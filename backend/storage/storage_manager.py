@@ -149,6 +149,10 @@ def get_tex_asset(tex_id: str, asset_path: str) -> Path:
     """Get the file path for a TeX asset by tex_id and asset_path."""
     return storage_manager.get_tex_asset(tex_id, asset_path)
 
+def get_pdf_synctex(pdf_id: str) -> Path:
+    """Get the file path for a synctex file associated with a PDF."""
+    return storage_manager.get_pdf_synctex(pdf_id)
+
 
 def upload_resource_from(source_path: str) -> str:
     """Upload a resource from a source path by moving it to the correct location."""
@@ -168,3 +172,8 @@ def upload_pdf_from(source_path: str) -> str:
 def upload_tex_asset_from(source_path: str, tex_id: str, asset_path: str) -> str:
     """Upload a TeX asset from a source path by moving it to the correct location."""
     return storage_manager.upload_tex_asset_from(source_path, tex_id, asset_path)
+
+
+def upload_pdf_synctex_from(source_path: str, pdf_id: str) -> str:
+    """Upload a synctex file associated with a PDF by moving it to the correct location."""
+    return storage_manager.upload_pdf_synctex_from(source_path, pdf_id)

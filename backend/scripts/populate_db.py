@@ -6,7 +6,7 @@ Script to populate the database with the new schema.
 import sys
 from pathlib import Path
 
-from db.database import DatabaseManager
+from db import DatabaseManager
 
 
 def populate_database():

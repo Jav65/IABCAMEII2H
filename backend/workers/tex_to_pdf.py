@@ -6,8 +6,8 @@ from pathlib import Path
 
 import traceback
 
-from db.database import get_session, update_session
-from storage.storage_manager import get_tex, get_pdf_file, upload_pdf_from
+from db import get_session, update_session
+from storage import get_tex, get_pdf_file, upload_pdf_from
 
 
 def process_tex_to_pdf(session_id: str) -> bool:
