@@ -2,6 +2,16 @@ import sqlite3
 import uuid
 from pathlib import Path
 from typing import Optional, Tuple
+from pydantic import BaseModel
+
+class Session(BaseModel):
+    """Session model"""
+    id: str
+    name: str
+    format: str
+    tex_id: str | None = None
+    pdf_id: str | None = None
+    synctex_id: str | None = None
 
 
 class DatabaseManager:
@@ -27,52 +37,69 @@ class DatabaseManager:
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS sessions (
                     id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    format TEXT NOT NULL,
                     tex_id TEXT,
-                    pdf_id TEXT
+                    pdf_id TEXT,
+                    synctex_id TEXT
                 )
             ''')
             conn.commit()
 
-    def create_session(self, tex_id: Optional[str] = None, pdf_id: Optional[str] = None) -> str:
+    def create_session(self, name: str, format: str) -> str:
         """Create a new session record and return the session ID."""
         session_id = str(uuid.uuid4())
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO sessions (id, tex_id, pdf_id) VALUES (?, ?, ?)",
-                (session_id, tex_id, pdf_id)
+                "INSERT INTO sessions (id, name, format) VALUES (?, ?, ?)",
+                (session_id, name, format)
             )
             conn.commit()
 
         return session_id
 
-    def get_session(self, session_id: str) -> Optional[Tuple[str, Optional[str], Optional[str]]]:
+    def get_session(self, session_id: str) -> Optional[Session]:
         """Get a session record by ID."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT id, tex_id, pdf_id FROM sessions WHERE id = ?",
+                "SELECT id, name, format, tex_id, pdf_id, synctex_id FROM sessions WHERE id = ?",
                 (session_id,)
             )
-            return cursor.fetchone()
+            row = cursor.fetchone()
+            if row:
+                return Session(
+                    id=row[0],
+                    name=row[1],
+                    format=row[2],
+                    tex_id=row[3],
+                    pdf_id=row[4],
+                    synctex_id=row[5]
+                )
+            return None
 
-    def update_session(self, session_id: str, tex_id: Optional[str] = None, pdf_id: Optional[str] = None) -> bool:
+    def update_session(self, session_id: str, name: Optional[str] = None, format: Optional[str] = None, tex_id: Optional[str] = None, pdf_id: Optional[str] = None, synctex_id: Optional[str] = None) -> bool:
         """Update a session record. Returns True if the session was updated, False if not found."""
         session = self.get_session(session_id)
         if not session:
             return False
 
         # Use existing values if not provided
-        current_tex, current_pdf = session[1], session[2]
+        current_name, current_format, current_tex, current_pdf, current_synctex = session.name, session.format, session.tex_id, session.pdf_id, session.synctex_id
+        new_name = name if name is not None else current_name
+        new_format = format if format is not None else current_format
         new_tex = tex_id if tex_id is not None else current_tex
         new_pdf = pdf_id if pdf_id is not None else current_pdf
+        new_synctex = synctex_id if synctex_id is not None else current_synctex
+
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE sessions SET tex_id = ?, pdf_id = ? WHERE id = ?",
-                (new_tex, new_pdf, session_id)
+                "UPDATE sessions SET name = ?, format = ?, tex_id = ?, pdf_id = ?, synctex_id = ? WHERE id = ?",
+                (new_name, new_format, new_tex, new_pdf, new_synctex, session_id)
             )
             conn.commit()
             return cursor.rowcount > 0
@@ -85,12 +112,23 @@ class DatabaseManager:
             conn.commit()
             return cursor.rowcount > 0
 
-    def list_sessions(self) -> list:
+    def list_sessions(self) -> list[Session]:
         """Get all session records."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, tex_id, pdf_id FROM sessions")
-            return cursor.fetchall()
+            cursor.execute("SELECT id, name, format, tex_id, pdf_id, synctex_id FROM sessions")
+            rows = cursor.fetchall()
+            return [
+                Session(
+                    id=row[0],
+                    name=row[1],
+                    format=row[2],
+                    tex_id=row[3],
+                    pdf_id=row[4],
+                    synctex_id=row[5]
+                )
+                for row in rows
+            ]
 
 
 # Global instance for convenience
@@ -98,19 +136,19 @@ db_manager = DatabaseManager()
 
 
 # Convenience functions that use the global instance
-def create_session(tex_id: Optional[str] = None, pdf_id: Optional[str] = None) -> str:
+def create_session(name: str, format: str) -> Session:
     """Create a new session record and return the session ID."""
-    return db_manager.create_session(tex_id, pdf_id)
+    return db_manager.create_session(name, format)
 
 
-def get_session(session_id: str) -> Optional[Tuple[str, Optional[str], Optional[str]]]:
+def get_session(session_id: str) -> Optional[Session]:
     """Get a session record by ID."""
     return db_manager.get_session(session_id)
 
 
-def update_session(session_id: str, tex_id: Optional[str] = None, pdf_id: Optional[str] = None) -> bool:
+def update_session(session_id: str, name: Optional[str] = None, format: Optional[str] = None, tex_id: Optional[str] = None, pdf_id: Optional[str] = None, synctex_id: Optional[str] = None) -> bool:
     """Update a session record. Returns True if the session was updated, False if not found."""
-    return db_manager.update_session(session_id, tex_id, pdf_id)
+    return db_manager.update_session(session_id, name, format, tex_id, pdf_id, synctex_id)
 
 
 def delete_session(session_id: str) -> bool:
@@ -118,6 +156,6 @@ def delete_session(session_id: str) -> bool:
     return db_manager.delete_session(session_id)
 
 
-def list_sessions() -> list:
+def list_sessions() -> list[Session]:
     """Get all session records."""
     return db_manager.list_sessions()

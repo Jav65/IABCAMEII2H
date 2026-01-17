@@ -4,6 +4,8 @@ import multiprocessing.synchronize
 import tempfile
 from pathlib import Path
 
+import traceback
+
 from db.database import get_session, update_session
 from storage.storage_manager import get_tex, get_pdf_file, upload_pdf_from
 
@@ -20,11 +22,11 @@ def process_tex_to_pdf(session_id: str) -> bool:
     """
     # Get the session from the database
     session_data = get_session(session_id)
-    if not session_data:
+    if session_data is None:
         print(f"Session with ID {session_id} not found in database")
         return False
 
-    _, tex_id, _ = session_data  # Extract the tex ID
+    tex_id = session_data.tex_id
 
     # In this implementation, we assume the tex_id corresponds to a file path
     # In a real implementation, you might map the UUID to an actual file path
@@ -53,7 +55,7 @@ def process_tex_to_pdf(session_id: str) -> bool:
             cmd = [
                 'pdflatex',
                 '-interaction=nonstopmode',  # Continue on errors
-                '-halt-on-error',           # Stop on fatal errors
+                # '-halt-on-error',           # Stop on fatal errors
                 '-synctex=1',               # Enable synctex for forward/backward search
                 '-output-directory=' + str(temp_path),  # Output aux files to temp directory
                 tex_filename  # Use just the filename, not the full path
@@ -66,7 +68,6 @@ def process_tex_to_pdf(session_id: str) -> bool:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
-                text=True,
                 timeout=60,  # 60 second timeout
                 cwd=str(tex_dir)  # Run in the tex file's directory
             )
@@ -77,7 +78,7 @@ def process_tex_to_pdf(session_id: str) -> bool:
 
             if result.returncode != 0:
                 print(f"LaTeX compilation failed for session {session_id}: {result.stderr}")
-                return False
+                # return False
 
             # Find the generated PDF file in the temp directory
             pdf_path = temp_path / f"{tex_path.stem}.pdf"
@@ -89,11 +90,13 @@ def process_tex_to_pdf(session_id: str) -> bool:
             # Find and handle synctex file if it exists
             synctex_path = temp_path / f"{tex_path.stem}.synctex.gz"
             if synctex_path.exists():
-                # For now, just print the synctex file path so you can see the output
-                print(f"Synctex file generated: {synctex_path}")
+                # for now, just move it to the current directory with a new name
+                synctex_path.rename(f"{tex_path.stem}.synctex.gz")
+                print(f"Synctex file generated: {tex_path.stem}.synctex.gz")
 
             # Upload the PDF to storage using upload_pdf_from
             pdf_id = upload_pdf_from(str(pdf_path))
+            print(f"Uploaded PDF ID: {pdf_id}")
 
             # Update the session in the database with the new PDF ID
             update_success = update_session(session_id, pdf_id=pdf_id)
@@ -109,6 +112,7 @@ def process_tex_to_pdf(session_id: str) -> bool:
         print(f"LaTeX compilation timed out for session {session_id}")
         return False
     except Exception as e:
+        print(traceback.format_exc())
         print(f"Error processing TeX to PDF for session {session_id}: {str(e)}")
         return False
 
@@ -187,7 +191,7 @@ if __name__ == "__main__":
     try:
         # Example: Add some jobs to the queue
         # In a real scenario, these would come from somewhere else
-        session_ids = ["session1", "session2", "session3"]
+        session_ids = ["y"]
 
         for sid in session_ids:
             job_queue.put(sid)

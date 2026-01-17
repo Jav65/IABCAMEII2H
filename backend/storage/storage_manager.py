@@ -47,36 +47,23 @@ class StorageManager:
         """Get the file path for a TeX asset by tex_id and asset_path."""
         return self.storage_path / "tex" / tex_id / asset_path
 
-    async def upload_resource(self, chunks: AsyncGenerator[bytes, None], extension: Optional[str] = None) -> str:
-        """Upload a resource from async chunks of bytes and return the ID."""
+    def get_pdf_synctex(self, pdf_id: str) -> Path:
+        """Get the file path for a synctex file associated with a PDF."""
+        return self.storage_path / "pdf" / f"{pdf_id}.synctex"
+
+    def upload_resource_from(self, source_path: str) -> str:
+        """Upload a resource from a source path by moving it to the correct location."""
         resource_id = self._generate_id()
-        file_path = self.get_resource(resource_id, extension)
+        dest_path = self.get_resource(resource_id, Path(source_path).suffix)
 
-        # Ensure parent directory exists
-        file_path.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure destination directory exists
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Handle async generator
-        with open(file_path, 'wb') as f:
-            async for chunk in chunks:
-                f.write(chunk)
+        # Move the file from source to destination
+        source = Path(source_path)
+        source.rename(dest_path)
 
         return resource_id
-
-    async def upload_tex_asset(self, tex_id: str, asset_path: str, chunks: AsyncGenerator[bytes, None]) -> str:
-        """Upload a TeX asset from async chunks of bytes and return the asset path."""
-        # Create the tex directory structure if it doesn't exist
-        tex_dir = self.storage_path / "tex" / tex_id
-        full_asset_path = tex_dir / asset_path
-
-        # Ensure parent directories exist
-        full_asset_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Handle async generator
-        with open(full_asset_path, 'wb') as f:
-            async for chunk in chunks:
-                f.write(chunk)
-
-        return asset_path
 
     def upload_tex_from(self, source_path: str) -> str:
         """Upload a TeX file from a source path by moving it to the correct location."""
@@ -105,6 +92,32 @@ class StorageManager:
         source.rename(dest_path)
 
         return pdf_id
+
+    def upload_tex_asset_from(self, source_path: str, tex_id: str, asset_path: str) -> str:
+        """Upload a TeX asset from a source path by moving it to the correct location."""
+        dest_path = self.get_tex_asset(tex_id, asset_path)
+
+        # Ensure destination directory exists
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Move the file from source to destination
+        source = Path(source_path)
+        source.rename(dest_path)
+
+        return str(dest_path)
+
+    def upload_pdf_synctex_from(self, source_path: str, pdf_id: str) -> str:
+        """Upload a synctex file associated with a PDF by moving it to the correct location."""
+        dest_path = self.storage_path / "pdf" / f"{pdf_id}.synctex.gz"
+
+        # Ensure destination directory exists
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Move the file from source to destination
+        source = Path(source_path)
+        source.rename(dest_path)
+
+        return str(dest_path)
 
 
 # Global instance for convenience
@@ -137,14 +150,9 @@ def get_tex_asset(tex_id: str, asset_path: str) -> Path:
     return storage_manager.get_tex_asset(tex_id, asset_path)
 
 
-async def upload_resource(chunks: AsyncGenerator[bytes, None], extension: Optional[str] = None) -> str:
-    """Upload a resource from async chunks of bytes and return the ID."""
-    return await storage_manager.upload_resource(chunks, extension)
-
-
-async def upload_tex_asset(tex_id: str, asset_path: str, chunks: AsyncGenerator[bytes, None]) -> str:
-    """Upload a TeX asset from async chunks of bytes and return the asset path."""
-    return await storage_manager.upload_tex_asset(tex_id, asset_path, chunks)
+def upload_resource_from(source_path: str) -> str:
+    """Upload a resource from a source path by moving it to the correct location."""
+    return storage_manager.upload_resource_from(source_path)
 
 
 def upload_tex_from(source_path: str) -> str:
@@ -155,3 +163,8 @@ def upload_tex_from(source_path: str) -> str:
 def upload_pdf_from(source_path: str) -> str:
     """Upload a PDF file from a source path by moving it to the correct location."""
     return storage_manager.upload_pdf_from(source_path)
+
+
+def upload_tex_asset_from(source_path: str, tex_id: str, asset_path: str) -> str:
+    """Upload a TeX asset from a source path by moving it to the correct location."""
+    return storage_manager.upload_tex_asset_from(source_path, tex_id, asset_path)
