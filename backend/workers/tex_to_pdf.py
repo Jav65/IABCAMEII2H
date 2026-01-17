@@ -3,6 +3,7 @@ import multiprocessing
 import multiprocessing.synchronize
 import tempfile
 from pathlib import Path
+import subprocess, tempfile, re, base64, gzip, pathlib
 
 import traceback
 
@@ -218,3 +219,62 @@ if __name__ == "__main__":
             print("Worker didn't stop gracefully, terminating...")
             worker_process.terminate()
             worker_process.join()
+
+def run_latex(latex_source: str):
+    if not isinstance(latex_source, str) or not latex_source.strip():
+        raise ValueError("LaTeX source is required")
+    tmpdir = pathlib.Path(tempfile.mkdtemp())
+    tex_path = tmpdir / "main.tex"
+    tex_path.write_text(latex_source, encoding="utf-8")
+
+    for _ in range(2):
+        subprocess.run(
+            ["pdflatex", "-interaction=nonstopmode", "--synctex=1", tex_path.name],
+            cwd=tmpdir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=True,
+        )
+
+    pdf_path = tmpdir / "main.pdf"
+    synctex_path = tmpdir / "main.synctex.gz"
+
+    # base64 encodings for front‑end
+    pdf_b64 = base64.b64encode(pdf_path.read_bytes()).decode()
+    synctex_b64 = base64.b64encode(synctex_path.read_bytes()).decode()
+
+    return {
+        "pdf": pdf_b64,
+        "synctex": synctex_b64,
+        "tmpdir": str(tmpdir),
+        "pdf_path": str(pdf_path),
+        "tex_path": str(tex_path),
+    }
+
+
+def parse_synctex(base64_synctex):
+    text = gzip.decompress(base64.b64decode(base64_synctex)).decode("utf-8", "ignore")
+
+    pattern = re.compile(r"[xkhg(](\d+),(\d+):(\d+),(\d+)(?::(\d+)(?:,(\d+))?(?:,(\d+))?)?")
+    SCALE = 65536
+
+    mappings = []
+    for m in pattern.finditer(text):
+        if m.group(0).startswith('h') or m.group(0).startswith('g') or m.group(5) is None:
+            continue
+        page = int(m.group(1))
+        line = int(m.group(2))
+        x = int(m.group(3)) / SCALE  
+        y = int(m.group(4)) / SCALE
+        width = int(m.group(5)) / SCALE
+        height = 10
+
+        mappings.append({
+            "line": line,
+            "page": page,
+            "x": x,
+            "y": 595 - y,
+            "width": width,
+            "height": height,
+        })
+    return mappings

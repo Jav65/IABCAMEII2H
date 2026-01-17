@@ -10,7 +10,7 @@ import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 GlobalWorkerOptions.workerSrc = workerSrc
 
-const COMPILE_ENDPOINT = 'http://localhost:5000/compile'
+const COMPILE_ENDPOINT = 'http://localhost:8000/compile'
 const STORAGE_KEY = 'local-preview-latex-source'
 const LOAD_STATUS = {
   idle: 'Compile to preview',
