@@ -5,8 +5,11 @@ import os
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Dict
 import pickle as pkl
+import pymupdf
+import pymupdf.layout
+import pymupdf4llm
 
 from dotenv import load_dotenv
 
@@ -21,6 +24,55 @@ load_dotenv()
 class ParseOptions:
     model: str = "gpt-4o-mini"
     min_chars_per_page: int = 30
+
+
+def json_to_pages_dict(pdf_json: dict) -> dict[int, str]:
+    """Convert detailed PDF JSON to simplified page_number -> content format.
+    
+    Args:
+        pdf_json: JSON object with structure: {pages: [{page_number, fulltext: [{lines: [{spans: [{text}]}]}]}]}
+        
+    Returns:
+        Dict mapping page_number (int) to concatenated text content (str)
+    """
+    pages_dict = {}
+    
+    pages_list = pdf_json.get("pages", [])
+    for page_obj in pages_list:
+        page_number = page_obj.get("page_number")
+        if page_number is None:
+            continue
+        
+        # Extract all text from fulltext sections
+        text_content = []
+        fulltext = page_obj.get("fulltext", [])
+        
+        for block in fulltext:
+            lines = block.get("lines", [])
+            for line in lines:
+                spans = line.get("spans", [])
+                for span in spans:
+                    text = span.get("text", "").strip()
+                    if text:
+                        text_content.append(text)
+        
+        # Join all text with spaces and clean up
+        page_text = " ".join(text_content).strip()
+        if page_text:
+            pages_dict[page_number] = page_text
+    
+    return pages_dict
+
+
+def convert_pdf_to_json(
+    source_path: str | Path,
+    ) -> Dict[int, str]:
+    """Convert PDF to markdown using pypdf and markdownify."""
+    doc = pymupdf.open(source_path)
+    json_data = pymupdf4llm.to_json(doc)
+    json_data = json.loads(json_data)
+    print(type(json_data))
+    return json_data
 
 
 def parse_pdf(
@@ -48,8 +100,9 @@ def parse_pdf(
 
     # Read PDF file
     try:
-        pdf_bytes = p.read_bytes()
-        print(f"[Parser] Read PDF {p.name} ({len(pdf_bytes)} bytes)")
+        print("[Parser] Converting PDF to JSON...")
+        json_data = convert_pdf_to_json(source_path)
+        print("[Parser] PDF conversion complete.")
     except Exception as e:
         print(f"[Parser] Error reading PDF {p}: {e}")
         return []
@@ -65,20 +118,9 @@ def parse_pdf(
 
         client = OpenAI(api_key=api_key)
 
-        # Upload PDF (upload step is only storage; prompt goes in the model call)
-        try:
-            with open(p, "rb") as f:
-                file_response = client.files.create(
-                    file=f,
-                    purpose="user_data",  # better for model inputs than "assistants"
-                )
-            file_id = file_response.id
-            print(f"[Parser] Uploaded PDF to OpenAI, file_id: {file_id}")
-        except Exception as e:
-            print(f"[Parser] Failed to upload PDF to OpenAI: {e}")
-            return []
+        transformed_json_data = json_to_pages_dict(json_data)
 
-        prompt = """You are an expert Cheatsheet Content Extractor. Process this PDF document to isolate high-signal, examinable material.
+        prompt = f"""You are an expert Cheatsheet Content Extractor. Process the provided per-page content (as JSON) to isolate high-signal, examinable material.
 
 Tasks:
 1. Identify logical page groups (consecutive pages covering the same core concept).
@@ -88,12 +130,12 @@ Tasks:
 5. Return SKIP for any page group that lacks technical substance (e.g., purely administrative pages, title pages, or course logistics).
 
 Return ONLY a valid JSON object:
-{
+{{
   "page_groups": [
-    {"pages": [1, 2], "content": "Cleaned, typo-corrected technical text...", "topic": "Topic label"},
-    {"pages": [3], "content": "SKIP", "topic": "Administrative/Title"}
+    {{"pages": [1, 2], "content": "Cleaned, typo-corrected technical text...", "topic": "Topic label"}},
+    {{"pages": [3], "content": "SKIP", "topic": "Administrative/Title"}}
   ]
-}
+}}
 
 Rules:
 - IF content is purely administrative (Course intro, Lecturer bio, Grading criteria), set content to "SKIP".
@@ -101,24 +143,27 @@ Rules:
 - Correct all typos and spelling mistakes.
 - Merge consecutive pages about the same topic.
 - Content string must be dense and fact-focused, ready for summarization.
-- Return ONLY the JSON, no markdown or explanation."""
+- Return ONLY the JSON, no markdown or explanation.
+
+Per-page content (keys are page numbers, values are the page text; use these page numbers in your output):
+```json
+{transformed_json_data}
+```
+"""
 
         try:
-            # Use Responses API with input_file
             response = client.responses.create(
                 model=options.model,
                 input=[{
                     "role": "user",
                     "content": [
                         {"type": "input_text", "text": prompt},
-                        {"type": "input_file", "file_id": file_id},
                     ],
                 }],
                 temperature=0.0,
                 max_output_tokens=4000,
             )
 
-            # `output_text` is the simplest way to get the model's text output
             response_text = (getattr(response, "output_text", None) or "").strip()
             if not response_text:
                 # Fallback if SDK version doesn’t expose output_text for some reason
@@ -133,13 +178,9 @@ Rules:
                 except Exception:
                     pass
 
-        finally:
-            # Clean up uploaded file
-            try:
-                client.files.delete(file_id)
-                print("[Parser] Cleaned up uploaded file")
-            except Exception as e:
-                print(f"[Parser] Warning: Could not delete file {file_id}: {e}")
+        except Exception as e:
+            print(f"[Parser] LLM API call failed: {e}")
+            return []
 
         # Parse JSON response (keep your existing robustness)
         try:
@@ -193,20 +234,23 @@ Rules:
         with open(f"test_data/pages_{Path(source_path).stem}.pkl", "wb") as f:
             pkl.dump(pages, f)
 
+        with open(f"test_data/test_json_folder/json_{Path(source_path).stem}.json", "w", encoding="utf-8") as f:
+            f.write(json.dumps(transformed_json_data, indent = 2))
+
         return pages
 
     except Exception as e:
         print(f"[Parser] LLM extraction failed for {p}: {e}")
         return []
     
-def parse_pdf(
-    source_path: str | Path,
-    category: ImportantCategory,
-    out_image_dir: str | Path,
-    doc_id_prefix: str | None = None,
-    options: ParseOptions | None = None,
-) -> List[PageContent]:
+# def parse_pdf(
+#     source_path: str | Path,
+#     category: ImportantCategory,
+#     out_image_dir: str | Path,
+#     doc_id_prefix: str | None = None,
+#     options: ParseOptions | None = None,
+# ) -> List[PageContent]:
     
-    with open(f"test_data/pages_{Path(source_path).stem}.pkl", "rb") as f:
-        pages = pkl.load(f)
-    return pages
+#     with open(f"test_data/pages_{Path(source_path).stem}.pkl", "rb") as f:
+#         pages = pkl.load(f)
+#     return pages
