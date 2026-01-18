@@ -56,14 +56,14 @@ def listen_for_events(session_id: str, format: str):
                 payload = line.removeprefix("data:").strip()
                 event = json.loads(payload)
 
-                if event.get("event") == "content_ready":
-                    content_id = event["content_id"]
+                if event.get("event") == "contentReady":
+                    content_id = event["contentId"]
                     print("Received content_ready event, downloading file...")
                     if format == "cheatsheet":
                         download_tex(content_id)
                     else:
                         download_json(content_id)
-                elif event.get("event") == "tex_error":
+                elif event.get("event") == "contentError":
                     message = event.get("message", "No message provided")
                     print(f"Error during processing: {message}")
 

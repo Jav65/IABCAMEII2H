@@ -8,6 +8,7 @@ import {
   type CSSProperties,
   type FormEvent,
 } from 'react'
+import { useLocation } from 'react-router-dom';
 import './App.css'
 import {
   type CompileResponse,
@@ -16,11 +17,12 @@ import {
 } from './synctex/compileResponse'
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist'
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import { API_URL } from './constants';
 
 GlobalWorkerOptions.workerSrc = workerSrc
 
-const COMPILE_ENDPOINT = 'http://localhost:8000/compile'
-const CHAT_ENDPOINT = 'http://localhost:8000/chat'
+const COMPILE_ENDPOINT = `${API_URL}/compile`
+const CHAT_ENDPOINT = `${API_URL}/chat`
 const STORAGE_KEY = 'local-preview-latex-source'
 const LOAD_STATUS = {
   idle: 'Compile to preview',
@@ -184,6 +186,7 @@ function App() {
   const [activeLine, setActiveLine] = useState<number | null>(null)
   const [selectedLineRange, setSelectedLineRange] = useState<LineRange | null>(null)
   const [isCompiling, setIsCompiling] = useState(false)
+  const [isEditorFocused, setIsEditorFocused] = useState(false)
   const [compileError, setCompileError] = useState<string | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
@@ -200,7 +203,53 @@ function App() {
   const [chatHeight, setChatHeight] = useState(180) 
   const [isDragging, setIsDragging] = useState(false)
   
+  const [isContentReady, setIsContentReady] = useState(false);
+  const [isContentError, setIsContentError] = useState(false);
 
+  const location = useLocation();
+  const session = location.state as { id: string, name: string, format: string };
+  const sessionId = session.id;
+  const sessionName = session.name;
+
+  // useEffect(() => {
+  //   // Start listening to SSE
+  //   const eventSource = new EventSource(`${API_URL}/session/${sessionId}/listen`);
+  //   eventSource.onmessage = (message) => {
+  //     const data = JSON.parse(message.data);
+  //     if (data.event === "contentReady") {
+  //       const texId = data.contentId;
+  //       const metadataId = data.generationMetadataId;
+  //       fetch(`${API_URL}/tex/${texId}`, {
+  //         method: 'GET',
+  //       }).then(async (response) => {
+  //         const reader = response.body!.getReader();
+  //         const decoder = new TextDecoder("utf-8");
+
+
+  //         while (true) {
+  //           const { value, done } = await reader.read();
+  //           if (done) break;
+  //           const chunk = decoder.decode(value, { stream: true });
+  //           setLatexSource(prev => prev + chunk);
+  //         }
+
+  //         const chunk = decoder.decode();
+  //         setLatexSource(prev => prev + chunk);
+  //       })
+  //       fetch(`${API_URL}/json/${metadataId}`, {
+  //         method: 'GET',
+  //       }).then(async (response) => {
+  //         // const metadata = await response.json();
+  //       });
+
+  //       setIsContentReady(true);
+  //     } else if (data.event === "contentError") {
+  //       setIsContentError(true);
+  //     }
+  //   }
+  // })
+
+  /*
   // load initial source from local storage or sample file
   useEffect(() => {
     let isMounted = true
@@ -242,6 +291,7 @@ function App() {
       isMounted = false
     }
   }, [])
+  */
 
   // render pdf
   useEffect(() => {

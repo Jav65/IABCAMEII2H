@@ -1,5 +1,6 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { API_URL } from "../constants"
 import './HomePage.css'
 
 const ROUTE_MAP: Record<string, string> = {
@@ -8,7 +9,7 @@ const ROUTE_MAP: Record<string, string> = {
   keynote: '/keynote',
 }
 
-const ACCEPTED_TYPES = '.jpg,.jpeg,.txt,.pdf'
+const ACCEPTED_TYPES = '.zip'
 
 function HomePage() {
   const navigate = useNavigate()
@@ -17,11 +18,32 @@ function HomePage() {
   const [fileName, setFileName] = useState('')
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const route = ROUTE_MAP[destination]
-    if (!route) return
-    navigate(route, { state: { prompt, fileName } })
-  }
+    event.preventDefault();
+    const route = ROUTE_MAP[destination];
+    if (!route) return;
+
+    const formData = new FormData();
+    formData.append("name", prompt);
+    formData.append("format", destination);
+
+    // single file
+    const fileInputRef = document.querySelector('input[type="file"]') as HTMLInputElement;
+    if (fileInputRef.files && fileInputRef.files.length > 0) {
+        formData.append("files", fileInputRef.files[0]);
+    }
+
+    fetch(`${API_URL}/session`, {
+        method: 'POST',
+        body: formData,
+    })
+        .then((resp) => resp.json())
+        .then((data) => {
+            navigate(route, { state: data });
+        })
+        .catch((error) => {
+            console.error('Error:', error);
+        });
+}
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -61,7 +83,7 @@ function HomePage() {
           </button>
         </div>
         <div className="home-file">
-          {fileName ? `Selected: ${fileName}` : 'Upload JPG, TXT, or PDF'}
+          {fileName ? `Selected: ${fileName}` : 'Upload a ZIP file'}
         </div>
       </form>
     </main>

@@ -231,7 +231,6 @@ def run_latex(latex_source: str):
             cwd=tmpdir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            check=True,
         )
 
     pdf_path = tmpdir / "main.pdf"

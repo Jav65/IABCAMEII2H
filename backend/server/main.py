@@ -249,12 +249,11 @@ async def run_agent_pipeline(session: Session, content: bytes):
             # TODO: add resources
 
         # Notify to client that processing is complete
-        await push_event_to_session(session.id, { "event": "content_ready", "content_id": content_id, "generation_metadata_id": metadata_json_id })
+        await push_event_to_session(session.id, { "event": "contentReady", "contentId": content_id, "generationMetadataId": metadata_json_id })
     except Exception as e:
         # Notify client of error
         print(traceback.format_exc())
-        await push_event_to_session(session.id, { "event": "content_error", "message": str(e) })
-
+        await push_event_to_session(session.id, { "event": "contentError", "message": str(e) })
 
 async def event_stream(session_id: str) -> AsyncGenerator[str, None]:
     """
@@ -280,7 +279,7 @@ async def event_stream(session_id: str) -> AsyncGenerator[str, None]:
 
     except Exception as e:
         # Send error event (client needs to reload)
-        event_json = json.dumps({ "event": "unexpected_error", "message": str(e) })
+        event_json = json.dumps({ "event": "unexpectedError", "message": str(e) })
         yield f"data: {event_json}\n\n"
 
 
