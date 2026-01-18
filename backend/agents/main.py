@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from agents.pipeline import Pipeline, LLMAnalyzer, KnowledgeGraphBuilder, Clusterer, Orderer, CheatsheetGenerator
 from agents.types import OutputFormat
+from categorizer.main import categorize_zip_content 
 
 
 @dataclass
@@ -19,18 +20,22 @@ class AtlasRAGConfig:
 
 
 def runner(
-        grouped: dict[str, list[Path]], format: str, output_dir: Path,
+        zip_file_path: Path, format: str, output_dir: Path,
         lang: str = "en", use_atlasrag: Optional[AtlasRAGConfig] = None,
     ) -> None:
     # TODO: Differentiate based on format, if the other formats are ready
     # The lang and use_atlasrag parameters are currently unused.
 
+    grouped = categorize_zip_content(zip_file_path)
+
     # Convert grouped dict to document list for pipeline
     documents = []
+    zip_file_dir = zip_file_path.parent
+    print(os.listdir(zip_file_dir))
     for category, files in grouped.items():
         for file_path in files:
             documents.append({
-                'source_path': file_path,
+                'source_path': zip_file_dir / file_path,
                 'category': category,
             })
 

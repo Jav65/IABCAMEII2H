@@ -231,11 +231,11 @@ Per-page content (keys are page numbers, values are the page text; use these pag
 
         print(f"[Parser] Extracted {len(pages)} page groups from {p.name}")
 
-        with open(f"test_data/pages_{Path(source_path).stem}.pkl", "wb") as f:
-            pkl.dump(pages, f)
+        # with open(f"test_data/pages_{Path(source_path).stem}.pkl", "wb") as f:
+        #     pkl.dump(pages, f)
 
-        with open(f"test_data/test_json_folder/json_{Path(source_path).stem}.json", "w", encoding="utf-8") as f:
-            f.write(json.dumps(transformed_json_data, indent = 2))
+        # with open(f"test_data/test_json_folder/json_{Path(source_path).stem}.json", "w", encoding="utf-8") as f:
+        #     f.write(json.dumps(transformed_json_data, indent = 2))
 
         return pages
 

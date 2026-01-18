@@ -9,6 +9,7 @@ import subprocess, tempfile, json, shutil
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 from workers.tex_to_pdf import parse_synctex, run_latex
+import traceback
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -56,11 +57,12 @@ def create_queue(session_id: str) -> asyncio.Queue:
     return queue
 
 
+"""
 def extract_zip_recursive(zip_path: Path, extract_to: Path) -> list[Path]:
-    """
-    Recursively extract a zip file and any nested zip files.
-    Returns a list of all extracted non-zip files.
-    """
+    
+    #Recursively extract a zip file and any nested zip files.
+    #Returns a list of all extracted non-zip files.
+
     extracted_files = []
     
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -81,20 +83,23 @@ def extract_zip_recursive(zip_path: Path, extract_to: Path) -> list[Path]:
                 extracted_files.append(item)
     
     return extracted_files
+"""
 
 
-async def process_uploaded_file(file: UploadFile, temp_dir: Path) -> list[Path]:
+async def process_uploaded_file(content: bytes, temp_dir: Path) -> Path:
     """
     Process an uploaded file, extracting zips recursively if needed.
     Returns a list of file paths ready for upload.
     """
     # Save the uploaded file to temp directory
-    file_path = temp_dir / file.filename
+    file_path = temp_dir / "file.zip"
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    content = await file.read()
+
     await asyncio.to_thread(file_path.write_bytes, content)
+
+    return file_path
     
+    """
     # Check if it's a zip file
     if file.filename.lower().endswith('.zip'):
         # Extract recursively in a thread
@@ -112,53 +117,53 @@ async def process_uploaded_file(file: UploadFile, temp_dir: Path) -> list[Path]:
         return extracted_files
     else:
         return [file_path]
+    """
 
 
 # Process pool for running blocking agent pipeline
 agent_process_pool = ProcessPoolExecutor()
 
-async def run_agent_pipeline(session_id: str):
+async def run_agent_pipeline(session: Session, content: bytes):
     """
     Run the agent pipeline for the given session ID.
     This is a blocking call and should be run in a separate process.
     In this case, we pass it to a ProcessPoolExecutor.
     """
     try:
-        # Get session from database
-        session = db.get_session(session_id)
-        if session is None:
-            raise ValueError(f"Session {session_id} not found")
+        # Create a temporary directory for processing
+        with tempfile.TemporaryDirectory() as temp_dir_str, tempfile.TemporaryDirectory() as output_dir_str:
+            temp_dir = Path(temp_dir_str)
+            output_dir = Path(output_dir_str)
+            
+            # Process uploaded files
+            zip_file_path = await process_uploaded_file(content, temp_dir)
 
-        # TODO: This is a placeholder until an agent to group the data is ready.
-        grouped = {
-            "Lectures": [storage.get_resource(res_id) for res_id in db.list_resources(session_id)],
-        }
-
-        with tempfile.TemporaryDirectory() as temp_output_dir_str:
-            temp_output_dir = Path(temp_output_dir_str)
+            # Run pipeline in a separate process and wait for completion
             await asyncio.get_running_loop().run_in_executor(
                 agent_process_pool,
                 agent_runner,
-                grouped,
+                zip_file_path,
                 session.format,
-                temp_output_dir,
+                output_dir,
             )
 
             # After running, upload the generated TeX file
-            output_tex_path = temp_output_dir / "main.tex"
+            output_tex_path = output_dir / "main.tex"
             if not output_tex_path.exists():
                 raise ValueError("Agent pipeline did not produce expected output")
-            
             tex_id = storage.upload_tex_from(str(output_tex_path))
 
+            # TODO: add resources
+
         # Update session with tex_id
-        db.update_session(session_id, tex_id=tex_id)
+        db.update_session(session.id, tex_id=tex_id)
 
         # Notify to client that processing is complete
-        await push_event_to_session(session_id, { "event": "tex_ready", "tex_id": tex_id })
+        await push_event_to_session(session.id, { "event": "tex_ready", "tex_id": tex_id })
     except Exception as e:
         # Notify client of error
-        await push_event_to_session(session_id, { "event": "error", "message": str(e) })
+        print(traceback.format_exc())
+        await push_event_to_session(session.id, { "event": "tex_error", "message": str(e) })
 
 
 async def event_stream(session_id: str) -> AsyncGenerator[str, None]:
@@ -196,30 +201,18 @@ async def create_session(
     files: list[UploadFile] = File(...)
 ) -> Session:
     """Create a new session with uploaded files"""
-    
-    # Create a temporary directory for processing
-    with tempfile.TemporaryDirectory() as temp_dir_str:
-        temp_dir = Path(temp_dir_str)
-        
-        # Process all uploaded files
-        all_files = []
-        for file in files:
-            processed_files = await process_uploaded_file(file, temp_dir)
-            all_files.extend(processed_files)
-        
-        # Upload each file as a resource
-        resource_ids = []
-        for file_path in all_files:
-            # Upload to storage
-            resource_id = storage.upload_resource_from(str(file_path))
-            resource_ids.append(resource_id)
-    
-    # Create session and resources in database
+    if len(files) == 0 or len(files) > 1:
+        raise HTTPException(status_code=400, detail="Exactly one ZIP file expected")
+
     session = db.create_session(name=name, format=format)
-    db.add_resources(session.id, resource_ids)
+
+    # Read the file in advance
+    # This is because UploadFile cannot be passed to a background task otherwise it will close
+    file = files[0]
+    content = await file.read()
 
     # Send job to agent to start processing the resource_ids
-    asyncio.create_task(run_agent_pipeline(session.id))
+    asyncio.create_task(run_agent_pipeline(session, content))
 
     return session
 

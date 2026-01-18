@@ -60,6 +60,9 @@ def listen_for_events(session_id: str):
                     tex_id = event["tex_id"]
                     print("Received tex_ready event, downloading .tex file...")
                     download_tex(tex_id)
+                elif event.get("event") == "tex_error":
+                    message = event.get("message", "No message provided")
+                    print(f"Error during processing: {message}")
 
 
 def download_tex(tex_id: str):
