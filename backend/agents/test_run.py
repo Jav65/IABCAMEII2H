@@ -93,16 +93,22 @@ def main() -> int:
         cheatsheet_generator=cheatsheet_generator,
     )
 
-    cheatsheet = pipeline.run()
+    cheatsheet, generation_metadata = pipeline.run()
 
     # Save cheatsheet output
     out_dir = Path(args.job_id)
     out_dir.mkdir(parents=True, exist_ok=True)
     output_file = out_dir / f"cheatsheet.tex"
     output_file.write_text(cheatsheet, encoding="utf-8")
+    
+    # Save generation metadata
+    metadata_file = out_dir / f"generation_metadata.json"
+    metadata_file.write_text(json.dumps(generation_metadata, indent=2, default=str), encoding="utf-8")
+    
     print(f"✓ Pipeline complete: {output_file}")
     print("\nGenerated files:")
     print(f"  - {output_file.name} ({output_file.stat().st_size} bytes)")
+    print(f"  - {metadata_file.name} ({metadata_file.stat().st_size} bytes)")
     return 0
 
 

@@ -33,7 +33,7 @@ class LLMAnalyzer:
             }
 
         try:
-            pages = parse_pdf(
+            parsed_pages = parse_pdf(
                 source_path=document["source_path"],
                 category=document.get("category", "Lectures"),
                 out_image_dir=document.get("out_image_dir", "./images"),
@@ -43,13 +43,14 @@ class LLMAnalyzer:
             return {
                 "topics": [],
                 "important_points": [],
-                "source": document.get("source_path", "unknown"),
+                "source": (document.get("source_path", "unknown"), document.get("page", 0)),
             }
 
         topics = []
         important_points = []
+        pages = []
 
-        for page in pages:
+        for page in parsed_pages:
             topic = page.text.replace("\n", " ").strip()
             if topic:
                 topics.append(topic)
@@ -58,11 +59,12 @@ class LLMAnalyzer:
                     "description": page.text[:200],
                     "type": "Concept",
                 })
+                pages.append(page)
 
         return {
             "topics": topics,
             "important_points": important_points,
-            "source": document["source_path"],
+            "source": (document["source_path"], pages),
         }
 
 
@@ -87,14 +89,14 @@ class CheatsheetGenerator:
     def __init__(self, model="gpt-4o-mini"):
         self.model = model
 
-    def generate(self, ordered_nodes: ClusteredKnowledge) -> str:
+    def generate(self, ordered_nodes: ClusteredKnowledge) -> tuple[str, dict]:
         """Generate LaTeX cheatsheet from ordered nodes using LLM for content blocks.
 
         Args:
             ordered_nodes: ClusteredKnowledge object
 
         Returns:
-            LaTeX content as string
+            Tuple of (LaTeX content, generation_metadata dict)
         """
         if not isinstance(ordered_nodes, ClusteredKnowledge):
             raise ValueError("ordered_nodes must be a ClusteredKnowledge object")
@@ -108,8 +110,12 @@ class CheatsheetGenerator:
             print(f"Warning: LLM generation failed - {e}, using fallback")
             return self._generate_fallback_latex(ordered_nodes, title)
 
-    def _generate_fallback_latex(self, knowledge: ClusteredKnowledge, title: str) -> str:
-        """Generate basic LaTeX when agentic generator is unavailable."""
+    def _generate_fallback_latex(self, knowledge: ClusteredKnowledge, title: str) -> tuple[str, dict]:
+        """Generate basic LaTeX when agentic generator is unavailable.
+        
+        Returns:
+            Tuple of (latex content, empty metadata dict)
+        """
         latex = r"""
 \documentclass[9pt,a4paper]{article}
 \usepackage[margin=0.4in]{geometry}
@@ -146,13 +152,13 @@ class CheatsheetGenerator:
                 latex += f"{node.description[:200]}\n\n"
 
             if node.source_ids:
-                latex += f"\\textit{{Source: {', '.join(node.source_ids)}}}\n\n"
+                latex += f"\\textit{{Source: {', '.join(str(s) for s in node.source_ids)}}}\n\n"
 
         latex += r"""
 \end{multicols}
 \end{document}
 """
-        return latex
+        return latex, {}
 
 
 class Pipeline:
@@ -174,11 +180,11 @@ class Pipeline:
         self.orderer = orderer or Orderer()
         self.cheatsheet_generator = cheatsheet_generator or CheatsheetGenerator()
 
-    def run(self) -> str:
+    def run(self) -> tuple[str, dict]:
         """Run the full pipeline.
 
         Returns:
-            LaTeX cheatsheet content as string
+            Tuple of (LaTeX cheatsheet content, generation_metadata dict)
         """
         print("[Pipeline] Starting end-to-end pipeline...")
 
@@ -186,30 +192,31 @@ class Pipeline:
         doc_infos = self._analyze_documents_parallel()
         if not doc_infos:
             print("[Pipeline] Warning: No documents were successfully analyzed")
-            return "% No documents to generate cheatsheet from\n"
+            return "% No documents to generate cheatsheet from\n", {}
 
         print("[Pipeline] Step 2: Building knowledge graph...")
         kg = self._build_knowledge_graph(doc_infos)
         if kg is None:
-            return "% Error building knowledge graph\n"
+            return "% Error building knowledge graph\n", {}
 
         print("[Pipeline] Step 3: Clustering by difficulty...")
         clusters = self._cluster_knowledge(kg)
         if clusters is None:
-            return "% Error clustering knowledge\n"
+            return "% Error clustering knowledge\n", {}
 
         print("[Pipeline] Step 4: Ordering nodes...")
         ordered_nodes = self._order_nodes(clusters)
         if ordered_nodes is None:
-            return "% Error ordering nodes\n"
+            return "% Error ordering nodes\n", {}
 
         print("[Pipeline] Step 5: Generating cheatsheet...")
-        cheatsheet = self._generate_cheatsheet(ordered_nodes)
-        if cheatsheet is None:
-            return "% Error generating cheatsheet\n"
-
+        result = self._generate_cheatsheet(ordered_nodes)
+        if result is None:
+            return "% Error generating cheatsheet\n", {}
+        
+        cheatsheet, metadata = result
         print("[Pipeline] ✓ Pipeline complete!")
-        return cheatsheet
+        return cheatsheet, metadata
 
     def _analyze_documents_parallel(self) -> List[Dict[str, Any]]:
         """Analyze documents in parallel using ThreadPoolExecutor."""
@@ -260,12 +267,17 @@ class Pipeline:
             print(f"  Error ordering: {e}")
             return None
 
-    def _generate_cheatsheet(self, ordered_nodes: ClusteredKnowledge) -> Optional[str]:
-        """Generate cheatsheet from ordered nodes."""
+    def _generate_cheatsheet(self, ordered_nodes: ClusteredKnowledge) -> Optional[tuple[str, dict]]:
+        """Generate cheatsheet from ordered nodes.
+        
+        Returns:
+            Tuple of (cheatsheet content, metadata dict) or None on error
+        """
         try:
-            cheatsheet = self.cheatsheet_generator.generate(ordered_nodes)
+            cheatsheet, metadata = self.cheatsheet_generator.generate(ordered_nodes)
             print(f"  Generated cheatsheet ({len(cheatsheet)} chars)")
-            return cheatsheet
+            print(f"  Tracked {len(metadata)} generation blocks")
+            return cheatsheet, metadata
         except Exception as e:
             print(f"  Error generating cheatsheet: {e}")
             return None

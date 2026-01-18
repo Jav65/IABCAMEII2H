@@ -443,26 +443,81 @@ class KnowledgeGraphBuilder:
         edges = []
         # Create nodes and keep mapping for edge heuristics
         node_map = {}  # (doc_idx, point_idx) -> node_id
+        
+        print(f"[KGBuilder] Processing {len(doc_infos)} documents")
+        
         for idx, info in enumerate(doc_infos):
             points = info.get('important_points', []) or []
+            print(f"[KGBuilder] Doc {idx}: {len(points)} points")
+            
+            if not points:
+                print(f"[KGBuilder] Doc {idx}: No points found, skipping")
+                continue
+            
+            # Pre-extract all labels for similarity comparison
+            point_labels = []
+            for point in points:
+                label = point.get('label', point if isinstance(point, str) else str(point)) if isinstance(point, dict) or isinstance(point, str) else str(point)
+                point_labels.append(str(label))
+            
             for i, point in enumerate(points):
                 node_id = f"doc{idx}_point{i}"
-                label = point.get('label', point if isinstance(point, str) else str(point)) if isinstance(point, dict) or isinstance(point, str) else str(point)
+                label = point_labels[i]
                 desc = point.get('description', '') if isinstance(point, dict) else (point if isinstance(point, str) else '')
+                
+                # Find the index with most similar label to current point's label
+                best_idx = i  # default to self
+                best_score = 0.0
+                for j, other_label in enumerate(point_labels):
+                    if i != j:
+                        score = _compute_text_similarity(label, other_label)
+                        if score > best_score:
+                            best_score = score
+                            best_idx = j
+                
+                # Extract doc path and page from source
+                source = info.get('source')
+                print(f"[KGBuilder] Point {i}: source type={type(source)}, value={source if not isinstance(source, (list, tuple)) or len(str(source)) < 100 else f'(tuple/list, len={len(source)})'}")
+                
+                if source and isinstance(source, (list, tuple)) and len(source) >= 2:
+                    doc_path = source[0]
+                    pages = source[1]
+                    print(f"[KGBuilder] Point {i}: doc_path={doc_path}, pages type={type(pages)}, len={len(pages) if hasattr(pages, '__len__') else 'N/A'}")
+                    # pages is a list of PageContent objects, extract .page attribute
+                    if isinstance(pages, (list, tuple)) and len(pages) > best_idx:
+                        page_obj = pages[best_idx]
+                        page_num = page_obj.page if hasattr(page_obj, 'page') else best_idx
+                        source_tuple = (doc_path, page_num)
+                        print(f"[KGBuilder] Point {i}: Using best_idx={best_idx}, page_num={page_num}")
+                    elif pages:
+                        page_obj = pages[0]
+                        page_num = page_obj.page if hasattr(page_obj, 'page') else 0
+                        source_tuple = (doc_path, page_num)
+                        print(f"[KGBuilder] Point {i}: Fallback to first page, page_num={page_num}")
+                    else:
+                        source_tuple = (doc_path, 0)
+                        print(f"[KGBuilder] Point {i}: Empty pages, using 0")
+                else:
+                    source_tuple = (str(source), 0)
+                    print(f"[KGBuilder] Point {i}: Using fallback source_tuple")
+                
                 nodes.append(KGNode(
                     node_id=node_id,
                     label=label,
                     node_type=point.get('type', 'Concept') if isinstance(point, dict) else 'Concept',
                     description=desc,
                     properties={},
-                    source_ids=[info.get('source')],
+                    source_ids=[source_tuple],
                 ))
                 node_map[(idx, i)] = {
                     'node_id': node_id,
-                    'label': str(label),
+                    'label': label,
                     'description': str(desc),
-                    'source': info.get('source')
+                    'source': source_tuple
                 }
+        
+        print(f"[KGBuilder] Created {len(nodes)} nodes")
+
 
         # Heuristic edges:
         # 1) Sequential 'follows' edges within the same document
