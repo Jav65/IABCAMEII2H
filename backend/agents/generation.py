@@ -63,87 +63,44 @@ def _generate_block_with_llm(node_label: str, node_description: str, node_type: 
             return _sanitize_text_for_latex(node_description, max_length=300)
         
         client = OpenAI(api_key=api_key)
-        prompt = f"""You are a study guide editor. Evaluate and summarize content for a cheatsheet.
+        prompt = f"""You are a strict cheat sheet editor. Your goal is extreme space efficiency and information density for a PRINTED paper summary.
 
 Term: {node_label}
 Type: {node_type}
 Content: {node_description}
 
 Task:
-1. Is this content important and educational and relevant to "Information Security"? (yes/no)
-2. If yes, provide a concise definition/explanation.
-3. If no, respond with: SKIP
+1. **FILTER**: Respond SKIP if the content is:
+   - Course admin/logistics (grading, deadlines).
+   - Non-technical introductions.
+   - Purely a collection of web links/URLs without definitions.
+2. If educational, output exactly ONE LaTeX structure.
 
-Omit fluff, irrelevant images, formatting details, and redundant information, course or assignment details. Focus on core concepts  and materials only.
+Layout & Conciseness Rules:
+- **Title Logic**: 
+  - If Term is short (<7 words), use it.
+  - If Term is a sentence/paragraph, REWRITE it into a concise 1-7 word title.
+- **Structure**:
+  \\textbf{{[Short Title]}}: [Consolidated Summary]
+- **Style**: Telegraphic. Omit articles. Fragments. Max 4 lines.
+- **Content Filtering**: 
+  - **REMOVE ALL URLs/Links**.
+  - Merge sub-topics into one block.
 
-Output:
-Just output the concise summary or "SKIP" if unimportant. No explanations. No Answer of yes and no of whether it is important.
-"""
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            max_tokens=300,
-        )
-        summary = response.choices[0].message.content.strip()
-        
-        # Check if LLM decided to skip this block
-        if "SKIP" in summary.upper() or summary.lower().startswith("no"):
-            return ""
-        
-        return _sanitize_text_for_latex(summary, max_length=500)
-    except Exception as e:
-        print(f"[Generation] Warning: LLM block generation failed - {e}, using fallback")
-        return _sanitize_text_for_latex(node_description, max_length=500)
+LaTeX Formatting Rules:
+- **Escaping**: You MUST escape reserved chars: \\$ \\% \\& \\# \\_ (e.g., \\$100).
+- **Math**: Use $...$ ONLY for formulas (e.g., $O(n)$).
+- **Code**: Use \\texttt{{...}}.
+- **Lists**: Use inline bullets ($\\bullet$) to save vertical space. NO \\begin{{itemize}}.
+- **No Wrappers**: Do NOT use \\text{{}} or \\[ \\].
 
-def _generate_notes_with_llm(node_label: str, node_description: str, node_type: str, model: str = "gpt-4o-mini") -> str:
-    print("[Generation] Generating block for node:", node_label)
-    """Generate a concise block summary using LLM, filtering unimportant content.
-    
-    Args:
-        node_label: The concept/term label
-        node_description: The description/definition
-        node_type: Type of node (Concept, Definition, etc.)
-        model: LLM model to use
-        
-    Returns:
-        Concise summary suitable for LaTeX cheatsheet, or empty string if unimportant
-    """
-    try:
-        from openai import OpenAI
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            return _sanitize_text_for_latex(node_description, max_length=300)
-        
-        client = OpenAI(api_key=api_key)
-        prompt = f"""
-Act as a JSON formatting assistant. Convert the following input data into a structured JSON object.
-
-**Input Data:**
-- Node Label: "{node_label}"
-- Node Description: "{node_description}"
-
-**Output Requirements:**
-1. **Structure:** Return a single JSON object (not a list).
-2. **Title Field:** Create a "title" field. Derive this from the "Node Label" provided above, but shorten it to be concise (max 5 words).
-3. **Key Takeaways Field:** Create a "keyTakeaways" field, which must be an array of objects.
-4. **Extraction:** Analyze the "Node Description" text. Extract key concepts or steps and format them into the "keyTakeaways" array.
-5. **Item Format:** Each item in the array must have:
-   - "label": A short name for the specific concept found in the description.
-   - "description": The explanation of that concept.
-6. **Exclusions:** Do NOT include course administration details (e.g., instructor names, room numbers, exam dates, grading policies) in the "keyTakeaways". If the description contains *only* administrative info, return an empty "keyTakeaways" array [].
-7. **Formatting:** Return raw JSON only. Do NOT use Markdown formatting, backticks, or code blocks (e.g., do not start with ```json).
-
-**Example Output Format:**
-{{
-  "title": "Shortened Title",
-  "keyTakeaways": [
-    {{
-      "label": "Concept 1",
-      "description": "Explanation of concept 1..."
-    }}
-  ]
-}}
+Symbol Safety Rules (CRITICAL):
+- **NO Unicode Symbols**: Do NOT use characters like →, ≤, ≥, ≠, or emojis.
+- **Use LaTeX Commands**: Replace them with standard math commands inside dollar signs:
+  - Use $\\to$ for →
+  - Use $\\le$ for ≤
+  - Use $\\ge$ for ≥
+  - Use $\\ne$ for ≠
 """
         response = client.chat.completions.create(
             model=model,
@@ -153,7 +110,11 @@ Act as a JSON formatting assistant. Convert the following input data into a stru
         )
         summary = response.choices[0].message.content.strip()
         
-        return json.loads(summary)
+        # Check if LLM decided to skip this block
+        if "SKIP" in summary.upper() or summary.lower().startswith("no"):
+            return ""
+        
+        return summary
     except Exception as e:
         print(f"[Generation] Warning: LLM block generation failed - {e}, using fallback")
         return node_description
@@ -246,6 +207,8 @@ def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> tuple[str
 \tcbuselibrary{breakable}
 \usepackage{xcolor}
 \usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{amsfonts}
 
 \color{black}
 
@@ -312,28 +275,19 @@ def _generate_cheatsheet(knowledge: ClusteredKnowledge, title: str) -> tuple[str
         diff_obj = knowledge.node_to_difficulty.get(nodes[0].node_id)
         section_label = diff_obj.label if diff_obj else f"Level {difficulty_level}"
 
-        latex_content += f"\n\\subsection*{{\\difftext{{{difficulty_level}}}{{{_escape_latex(section_label)}}}}}\n"
+        latex_content += f"\\section{{{section_label}}}\n"
         
         for node in nodes:
-            node_title = _escape_latex(node.label)
             node_desc = _generate_block_with_llm(node.label, node.description, node.node_type)
             
             # Skip blocks with empty/unimportant content
             if not node_desc or node_desc.strip() == "":
                 continue
             
-            node_type = _escape_latex(node.node_type)
-            
             # Track line numbers before adding block
             start_line = latex_content.count('\n') + 1
             
-            block_content = f"""
-\\begin{{tcolorbox}}[title={node_title}, breakable]
-\\textit{{{node_type}}} \\\\
-{node_desc}
-\\end{{tcolorbox}}
-"""
-            latex_content += block_content
+            latex_content += node_desc + "\\\\[0.2cm]\n"
             
             # Track line numbers after adding block
             end_line = latex_content.count('\n')
