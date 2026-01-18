@@ -239,17 +239,18 @@ This enables **citation tracking** and **source attribution** for every generate
 
 - [x] Multi-format PDF parsing with OCR fallback
 - [x] LLM-powered knowledge graph construction
+- [x] Automatic Schema Construction for any kind of documents
 - [x] Intelligent difficulty-based clustering
-- [x] Source tracking with page-level granularity
+- [x] Source tracking with page-level granularity to ease double checking and modifications
 - [x] Three output formats (cheatsheet/flashcard/keynote)
 - [x] LaTeX editor with real-time preview
+- [x] AI-Support to ease amendments of the outputs
 - [x] Interactive flashcard study mode
-- [x] Generation metadata for citation tracking
+- [x] Saved sessions to continue where users were left off
 
 ### 🚧 In Progress
 
 - [ ] SyncTeX bidirectional navigation (LaTeX ↔ PDF)
-- [ ] Chat panel for iterative refinement
 - [ ] Flashcard analytics and spaced repetition
 
 ---
@@ -275,15 +276,14 @@ Novel solutions don't always mean feasible for production. At the end of the day
    - Improve SyncTeX coordinate mapping
    - Add bidirectional navigation with visual indicators
 
-2. **Smart AI Summarization**
-   - Context-aware content filtering
-   - User-controlled edits without unexpected rewrites
-   - Preserve manual changes during regeneration
-
-3. **Flashcard Analytics**
+2. **Flashcard Analytics**
    - Track study performance per card
    - Implement spaced repetition algorithm
    - Better long-term memory retention
+  
+3. **Creation Speed**
+  - Implement a more efficient pipeline without sacrificing performance and guardrails
+  - Perhaps try a bigger model or obtain stronger computing resources
 
 4. **Maybe... Sleep** 😴
 
@@ -297,36 +297,15 @@ Novel solutions don't always mean feasible for production. At the end of the day
 
 ---
 
-## 🤝 Contributing
-
-This project is open to contributions! Whether you're:
-- 🐛 Fixing bugs
-- ✨ Adding features  
-- 📝 Improving documentation
-- 🎨 Enhancing the UI
-
-...we'd love your help. Please open an issue or PR!
-
----
-
 ## 🙏 Acknowledgments
 
 Built with caffeine, panic, and determination by students who've been there.
 
 Special thanks to:
-- The OpenAI team for GPT-4o-mini
+- The OpenAI team for GPT models
 - The LaTeX community for decades of typesetting excellence
 - Every stressed student who's ever said "I should've started earlier"
-
----
-
-## 📞 Support
-
-Having issues? Found a bug? Want to share your success story?
-
-- 📧 Open an issue on GitHub
-- 💬 Join our Discord (coming soon!)
-- 🐦 Tweet us your exam victories
+- And especially NUS Hackers who have forced us to hack this project in <= 24 hrs
 
 ---
 
