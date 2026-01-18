@@ -5,8 +5,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from backend.agents.types import PageContent
-from backend.agents.utils.hash import sha256_file
+from agents.types import PageContent
+from agents.utils.hash import sha256_file
 
 
 @dataclass

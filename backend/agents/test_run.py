@@ -5,8 +5,8 @@ import os
 import json
 from pathlib import Path
 
-from backend.agents.pipeline import Pipeline, LLMAnalyzer, KnowledgeGraphBuilder, Clusterer, Orderer, CheatsheetGenerator
-from backend.agents.types import OutputFormat
+from agents.pipeline import Pipeline, LLMAnalyzer, KnowledgeGraphBuilder, Clusterer, Orderer, CheatsheetGenerator
+from agents.types import OutputFormat
 
 
 def main() -> int:

@@ -11,9 +11,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from concurrent.futures import ProcessPoolExecutor
 from workers.tex_to_pdf import parse_synctex, run_latex
+import traceback
 from pydantic import BaseModel
-from fastapi import FastAPI, HTTPException, UploadFile, File, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -21,6 +23,8 @@ from .utils import file_iterator
 import db
 from db.database import Session
 import storage
+
+from agents.main import runner as agent_runner
 
 
 # Initialize FastAPI app
@@ -61,7 +65,7 @@ class ChatResponse(BaseModel):
 
 
 # In-memory storage for sessions and their associated queues
-session_queues: dict[str, asyncio.Queue] = {}
+session_queues: dict[str, list[asyncio.Queue]] = {}
 
 
 def create_session_id() -> str:
@@ -69,11 +73,13 @@ def create_session_id() -> str:
     return str(uuid.uuid4())
 
 
-def get_or_create_queue(session_id: str) -> asyncio.Queue:
+def create_queue(session_id: str) -> asyncio.Queue:
     """Get or create a queue for a session, also initializes the session state"""
     if session_id not in session_queues:
-        session_queues[session_id] = asyncio.Queue()
-    return session_queues[session_id]
+        session_queues[session_id] = []
+    queue = asyncio.Queue()
+    session_queues[session_id].append(queue)
+    return queue
 
 
 def build_chat_prompt(
@@ -124,11 +130,13 @@ def parse_chat_response(raw_response: str) -> tuple[str, str | None]:
     return reply_text, latex_text
 
 
+"""
+>>>>>>> integrate-agent-w-be
 def extract_zip_recursive(zip_path: Path, extract_to: Path) -> list[Path]:
-    """
-    Recursively extract a zip file and any nested zip files.
-    Returns a list of all extracted non-zip files.
-    """
+    
+    #Recursively extract a zip file and any nested zip files.
+    #Returns a list of all extracted non-zip files.
+
     extracted_files = []
     
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -149,20 +157,23 @@ def extract_zip_recursive(zip_path: Path, extract_to: Path) -> list[Path]:
                 extracted_files.append(item)
     
     return extracted_files
+"""
 
 
-async def process_uploaded_file(file: UploadFile, temp_dir: Path) -> list[Path]:
+async def process_uploaded_file(content: bytes, temp_dir: Path) -> Path:
     """
     Process an uploaded file, extracting zips recursively if needed.
     Returns a list of file paths ready for upload.
     """
     # Save the uploaded file to temp directory
-    file_path = temp_dir / file.filename
+    file_path = temp_dir / "file.zip"
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    content = await file.read()
+
     await asyncio.to_thread(file_path.write_bytes, content)
+
+    return file_path
     
+    """
     # Check if it's a zip file
     if file.filename.lower().endswith('.zip'):
         # Extract recursively in a thread
@@ -180,6 +191,53 @@ async def process_uploaded_file(file: UploadFile, temp_dir: Path) -> list[Path]:
         return extracted_files
     else:
         return [file_path]
+    """
+
+
+# Process pool for running blocking agent pipeline
+agent_process_pool = ProcessPoolExecutor()
+
+async def run_agent_pipeline(session: Session, content: bytes):
+    """
+    Run the agent pipeline for the given session ID.
+    This is a blocking call and should be run in a separate process.
+    In this case, we pass it to a ProcessPoolExecutor.
+    """
+    try:
+        # Create a temporary directory for processing
+        with tempfile.TemporaryDirectory() as temp_dir_str, tempfile.TemporaryDirectory() as output_dir_str:
+            temp_dir = Path(temp_dir_str)
+            output_dir = Path(output_dir_str)
+            
+            # Process uploaded files
+            zip_file_path = await process_uploaded_file(content, temp_dir)
+
+            # Run pipeline in a separate process and wait for completion
+            await asyncio.get_running_loop().run_in_executor(
+                agent_process_pool,
+                agent_runner,
+                zip_file_path,
+                session.format,
+                output_dir,
+            )
+
+            # After running, upload the generated TeX file
+            output_tex_path = output_dir / "main.tex"
+            if not output_tex_path.exists():
+                raise ValueError("Agent pipeline did not produce expected output")
+            tex_id = storage.upload_tex_from(str(output_tex_path))
+
+            # TODO: add resources
+
+        # Update session with tex_id
+        db.update_session(session.id, tex_id=tex_id)
+
+        # Notify to client that processing is complete
+        await push_event_to_session(session.id, { "event": "tex_ready", "tex_id": tex_id })
+    except Exception as e:
+        # Notify client of error
+        print(traceback.format_exc())
+        await push_event_to_session(session.id, { "event": "tex_error", "message": str(e) })
 
 
 async def event_stream(session_id: str) -> AsyncGenerator[str, None]:
@@ -195,7 +253,7 @@ async def event_stream(session_id: str) -> AsyncGenerator[str, None]:
     
     Send a None value to signal end of stream.
     """
-    queue = get_or_create_queue(session_id)
+    queue = create_queue(session_id)
 
     try:
         while True:
@@ -206,41 +264,29 @@ async def event_stream(session_id: str) -> AsyncGenerator[str, None]:
 
     except Exception as e:
         # Send error event (client needs to reload)
-        yield "data: {\"event\": \"error\"}\n\n"
+        event_json = json.dumps({ "event": "unexpected_error", "message": str(e) })
+        yield f"data: {event_json}\n\n"
 
 
 @app.post("/session", response_model=Session)
 async def create_session(
-    name: str,
-    format: str,
+    name: str = Form(...),
+    format: str = Form(...),
     files: list[UploadFile] = File(...)
 ) -> Session:
     """Create a new session with uploaded files"""
-    
-    # Create a temporary directory for processing
-    with tempfile.TemporaryDirectory() as temp_dir_str:
-        temp_dir = Path(temp_dir_str)
-        
-        # Process all uploaded files
-        all_files = []
-        for file in files:
-            processed_files = await process_uploaded_file(file, temp_dir)
-            all_files.extend(processed_files)
-        
-        # Upload each file as a resource
-        resource_ids = []
-        for file_path in all_files:
-            # Upload to storage
-            resource_id = storage.upload_resource_from(str(file_path))
-            resource_ids.append(resource_id)
-    
-    # Create session in database
+    if len(files) == 0 or len(files) > 1:
+        raise HTTPException(status_code=400, detail="Exactly one ZIP file expected")
+
     session = db.create_session(name=name, format=format)
-    
-    # Initialize queue for this session
-    get_or_create_queue(session.id)
-    
-    # TODO: Send job to agent to start processing the resource_ids
+
+    # Read the file in advance
+    # This is because UploadFile cannot be passed to a background task otherwise it will close
+    file = files[0]
+    content = await file.read()
+
+    # Send job to agent to start processing the resource_ids
+    asyncio.create_task(run_agent_pipeline(session, content))
 
     return session
 
@@ -339,11 +385,8 @@ async def push_event_to_session(session_id: str, event: dict) -> None:
         session_id: The session ID to push to
         event: The event data (dict)
     """
-    if session_id not in session_queues:
-        get_or_create_queue(session_id)
-    
-    queue = session_queues[session_id]
-    await queue.put(event)
+    for queue in session_queues[session_id]:
+        await queue.put(event)
 
 
 async def end_session_stream(session_id: str) -> None:
@@ -352,9 +395,47 @@ async def end_session_stream(session_id: str) -> None:
     
     This should be called when no more events will be sent.
     """
-    if session_id in session_queues:
-        queue = session_queues[session_id]
+    for queue in session_queues[session_id]:
         await queue.put({ "event": "end" })
+    session_queues.pop(session_id, None)
+
+
+@app.post("/compile")
+async def compile_live(request: Request):
+    payload = await request.json()
+    source = payload.get("source")
+    if not isinstance(source, str) or not source.strip():
+        return JSONResponse({"error": "Missing LaTeX source"}, status_code=400)
+
+    try:
+        result = run_latex(source)
+    except subprocess.CalledProcessError as exc:
+        output = (
+            exc.stdout.decode("utf-8", "ignore")
+            if isinstance(exc.stdout, (bytes, bytearray))
+            else str(exc.stdout)
+        )
+        return JSONResponse(
+            {"error": "LaTeX compilation failed", "details": output},
+            status_code=400,
+        )
+    except Exception as exc:
+        return JSONResponse(
+            {"error": "Server error", "details": str(exc)},
+            status_code=500,
+        )
+
+    mappings = parse_synctex(result["synctex"])
+    shutil.rmtree(result["tmpdir"], ignore_errors=True)
+
+    return JSONResponse(
+        {
+            "source": source,
+            "pdf": result["pdf"],
+            "synctex": result["synctex"],
+            "mappings": mappings,
+        }
+    )
 
 
 @app.post("/chat", response_model=ChatResponse)

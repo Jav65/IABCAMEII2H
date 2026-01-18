@@ -81,6 +81,11 @@ def categorize_zip_content(zip_file_path):
                 if file.lower().endswith(".pdf") and "__MACOSX" not in file:
                     pdf_paths.append(file)
 
+            # Unzip the file and place contents in the same directory
+            # This is a temporary solution since it's more convenient this way
+            # You need to assume zip_file_path is in a temporary directory
+            zip_ref.extractall(zip_file_path.parent)
+
         total_files = len(pdf_paths)
         if total_files == 0:
             print("No PDF files found inside the zip.")
