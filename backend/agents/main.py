@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass
 
-from agents.pipeline import Pipeline, LLMAnalyzer, KnowledgeGraphBuilder, Clusterer, Orderer, CheatsheetGenerator
+from agents.pipeline import Pipeline, LLMAnalyzer, KnowledgeGraphBuilder, Clusterer, Orderer, Generator
 from agents.types import OutputFormat
 from categorizer.main import categorize_zip_content 
 
@@ -44,19 +44,33 @@ def runner(
     kg_builder = KnowledgeGraphBuilder()
     clusterer = Clusterer()
     orderer = Orderer()
-    cheatsheet_generator = CheatsheetGenerator()
+    generator = Generator(output_format=format)
 
     pipeline = Pipeline(
         documents=documents,
+        output_format=format,
+        output_dir=output_dir,
         llm=llm,
         kg_builder=kg_builder,
         clusterer=clusterer,
         orderer=orderer,
-        cheatsheet_generator=cheatsheet_generator,
+        generator=generator,
     )
 
-    output_tex = pipeline.run()
+    content, generation_metadata = pipeline.run()
+
+    # Determine file extension based on format
+    file_extensions = {
+        "cheatsheet": ".tex",
+        "keynote": ".json",
+        "flashcard": ".json",
+    }
+    file_ext = file_extensions.get(format, ".json")
 
     # Save output
-    output_file = output_dir / f"main.tex"
-    output_file.write_text(output_tex, encoding="utf-8")
+    output_file = output_dir / f"{format}{file_ext}"
+    output_file.write_text(content, encoding="utf-8")
+
+    # Save generation metadata
+    metadata_file = output_dir / f"generation_metadata.json"
+    metadata_file.write_text(json.dumps(generation_metadata, indent=2, default=str), encoding="utf-8")

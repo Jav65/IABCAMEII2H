@@ -5,22 +5,18 @@ import tempfile
 from pathlib import Path
 import subprocess, tempfile, re, base64, gzip, pathlib
 
-import traceback
 
-from db import get_session, update_session
-from storage import get_tex, get_pdf_file, upload_pdf_from
-
-
+"""
 def process_tex_to_pdf(session_id: str) -> bool:
-    """
-    Process a TeX to PDF conversion job.
+    
+    # Process a TeX to PDF conversion job.
 
-    Args:
-        session_id: The ID of the session containing the TeX file info
+    # Args:
+    #     session_id: The ID of the session containing the TeX file info
 
-    Returns:
-        bool: True if the conversion was successful, False otherwise
-    """
+    # Returns:
+    #     bool: True if the conversion was successful, False otherwise
+    
     # Get the session from the database
     session_data = get_session(session_id)
     if session_data is None:
@@ -119,14 +115,14 @@ def process_tex_to_pdf(session_id: str) -> bool:
 
 
 def tex_to_pdf_worker(job_queue: multiprocessing.Queue, result_queue: multiprocessing.Queue, stop_event: multiprocessing.synchronize.Event):
-    """
-    Worker function that processes jobs from the queue.
+    
+    # Worker function that processes jobs from the queue.
 
-    Args:
-        job_queue: Queue to get jobs from
-        result_queue: Queue to put results to
-        stop_event: Event to signal the worker to stop
-    """
+    # Args:
+    #     job_queue: Queue to get jobs from
+    #     result_queue: Queue to put results to
+    #     stop_event: Event to signal the worker to stop
+    
     print("Starting TeX to PDF worker...")
 
     while not stop_event.is_set():
@@ -158,17 +154,17 @@ def tex_to_pdf_worker(job_queue: multiprocessing.Queue, result_queue: multiproce
 
 
 def start_worker_process(job_queue: multiprocessing.Queue, result_queue: multiprocessing.Queue, stop_event: multiprocessing.synchronize.Event) -> multiprocessing.Process:
-    """
-    Start a worker process that handles TeX to PDF conversions.
+    
+    # Start a worker process that handles TeX to PDF conversions.
 
-    Args:
-        job_queue: Queue to get jobs from
-        result_queue: Queue to put results to
-        stop_event: Event to signal the worker to stop
+    # Args:
+    #     job_queue: Queue to get jobs from
+    #     result_queue: Queue to put results to
+    #     stop_event: Event to signal the worker to stop
 
-    Returns:
-        multiprocessing.Process: The started worker process
-    """
+    # Returns:
+    #     multiprocessing.Process: The started worker process
+    
     worker_process = multiprocessing.Process(
         target=tex_to_pdf_worker,
         args=(job_queue, result_queue, stop_event)
@@ -219,6 +215,8 @@ if __name__ == "__main__":
             print("Worker didn't stop gracefully, terminating...")
             worker_process.terminate()
             worker_process.join()
+
+"""
 
 def run_latex(latex_source: str):
     if not isinstance(latex_source, str) or not latex_source.strip():

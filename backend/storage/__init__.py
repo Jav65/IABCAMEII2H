@@ -5,14 +5,10 @@ from .storage_manager import (
     init_storage,
     get_resource,
     get_tex,
-    get_pdf_file,
-    get_tex_asset,
-    get_pdf_synctex,
+    get_json,
     upload_resource_from,
     upload_tex_from,
-    upload_pdf_from,
-    upload_tex_asset_from,
-    upload_pdf_synctex_from,
+    upload_json_from,
 )
 
 __all__ = [
@@ -20,12 +16,8 @@ __all__ = [
     'init_storage',
     'get_resource',
     'get_tex',
-    'get_pdf_file',
-    'get_tex_asset',
-    'get_pdf_synctex',
+    'get_json',
     'upload_resource_from',
-    'upload_tex_asset_from',
     'upload_tex_from',
-    'upload_pdf_from',
-    'upload_pdf_synctex_from',
+    'upload_json_from',
 ]

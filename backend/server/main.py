@@ -221,23 +221,39 @@ async def run_agent_pipeline(session: Session, content: bytes):
                 output_dir,
             )
 
-            # After running, upload the generated TeX file
-            output_tex_path = output_dir / "main.tex"
-            if not output_tex_path.exists():
-                raise ValueError("Agent pipeline did not produce expected output")
-            tex_id = storage.upload_tex_from(str(output_tex_path))
+            # After running, upload the content and generation metadata
+            match session.format:
+                case "cheatsheet":
+                    output_tex_path = output_dir / "cheatsheet.tex"
+                    if not output_tex_path.exists():
+                        raise ValueError("Agent pipeline did not produce expected output")
+                    tex_id = storage.upload_tex_from(str(output_tex_path))
+                    content_id = tex_id
+                    db.update_session(session.id, tex_id=tex_id)
+                case "keynote" | "flashcard":
+                    output_json_path = output_dir / f"{session.format}.json"
+                    if not output_json_path.exists():
+                        raise ValueError("Agent pipeline did not produce expected output")
+                    json_id = storage.upload_json_from(str(output_json_path))
+                    content_id = json_id
+                    db.update_session(session.id, json_id=json_id)
+                case _:
+                    raise ValueError(f"Unsupported format: {session.format}")
+            
+            metadata_json_id = None
+            generation_metadata_path = output_dir / "generation_metadata.json"
+            if generation_metadata_path.exists():
+                metadata_json_id = storage.upload_json_from(str(generation_metadata_path))
+                db.update_session(session.id, generation_metadata_id=metadata_json_id)
 
             # TODO: add resources
 
-        # Update session with tex_id
-        db.update_session(session.id, tex_id=tex_id)
-
         # Notify to client that processing is complete
-        await push_event_to_session(session.id, { "event": "tex_ready", "tex_id": tex_id })
+        await push_event_to_session(session.id, { "event": "content_ready", "content_id": content_id, "generation_metadata_id": metadata_json_id })
     except Exception as e:
         # Notify client of error
         print(traceback.format_exc())
-        await push_event_to_session(session.id, { "event": "tex_error", "message": str(e) })
+        await push_event_to_session(session.id, { "event": "content_error", "message": str(e) })
 
 
 async def event_stream(session_id: str) -> AsyncGenerator[str, None]:
@@ -317,36 +333,19 @@ async def get_tex(tex_id: str) -> dict:
     )
 
 
-@app.get("/pdf/{pdf_id}")
-async def get_pdf(pdf_id: str) -> dict:
-    """Get PDF data by ID"""
-    pdf_filepath = storage.get_pdf(pdf_id)
-    if not pdf_filepath.exists():
-        raise HTTPException(status_code=404, detail="PDF not found")
+@app.get("/json/{json_id}")
+async def get_json(json_id: str) -> dict:
+    """Get JSON data by ID"""
+    json_filepath = storage.get_json(json_id)
+    if not json_filepath.exists():
+        raise HTTPException(status_code=404, detail="JSON not found")
 
     return StreamingResponse(
-        file_iterator(pdf_filepath),
-        media_type="application/pdf",
+        file_iterator(json_filepath),
+        media_type="application/json",
         headers={
-            "Content-Disposition": f'inline; filename="{pdf_filepath.name}"',
-            "Content-Length": str(pdf_filepath.stat().st_size),
-        },
-    )
-
-
-@app.get("/synctex/{pdf_id}")
-async def get_synctex(pdf_id: str) -> dict:
-    """Get Synctex data by PDF ID"""
-    synctex_filepath = storage.get_pdf_synctex(pdf_id)
-    if not synctex_filepath.exists():
-        raise HTTPException(status_code=404, detail="Synctex not found")
-
-    return StreamingResponse(
-        file_iterator(synctex_filepath),
-        media_type="application/x-synctex",
-        headers={
-            "Content-Disposition": f'inline; filename="{synctex_filepath.name}"',
-            "Content-Length": str(synctex_filepath.stat().st_size),
+            "Content-Disposition": f'inline; filename="{json_filepath.name}"',
+            "Content-Length": str(json_filepath.stat().st_size),
         },
     )
 

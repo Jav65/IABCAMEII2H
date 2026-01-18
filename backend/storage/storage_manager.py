@@ -13,7 +13,7 @@ class StorageManager:
         # Create subdirectories for different types of files
         (self.storage_path / "resources").mkdir(exist_ok=True)
         (self.storage_path / "tex").mkdir(exist_ok=True)
-        (self.storage_path / "pdf").mkdir(exist_ok=True)
+        (self.storage_path / "json").mkdir(exist_ok=True)
         self.init_storage()
 
     def init_storage(self):
@@ -36,20 +36,11 @@ class StorageManager:
 
     def get_tex(self, tex_id: str) -> Path:
         """Get the file path for a TeX file by ID (returns the tex directory)."""
-        tex_dir = self.storage_path / "tex" / tex_id
-        return tex_dir / "main.tex"
+        return self.storage_path / "tex" / f"{tex_id}.tex"
 
-    def get_pdf_file(self, pdf_id: str) -> Path:
-        """Get the file path for a PDF file by ID."""
-        return self.storage_path / "pdf" / f"{pdf_id}.pdf"
-
-    def get_tex_asset(self, tex_id: str, asset_path: str) -> Path:
-        """Get the file path for a TeX asset by tex_id and asset_path."""
-        return self.storage_path / "tex" / tex_id / asset_path
-
-    def get_pdf_synctex(self, pdf_id: str) -> Path:
-        """Get the file path for a synctex file associated with a PDF."""
-        return self.storage_path / "pdf" / f"{pdf_id}.synctex"
+    def get_json(self, json_id: str) -> Path:
+        """Get the file path for a JSON file by ID."""
+        return self.storage_path / "json" / f"{json_id}.json"
 
     def upload_resource_from(self, source_path: str) -> str:
         """Upload a resource from a source path by moving it to the correct location."""
@@ -79,10 +70,10 @@ class StorageManager:
 
         return tex_id
 
-    def upload_pdf_from(self, source_path: str) -> str:
-        """Upload a PDF file from a source path by moving it to the correct location."""
-        pdf_id = self._generate_id()
-        dest_path = self.get_pdf_file(pdf_id)
+    def upload_json_from(self, source_path: str) -> str:
+        """Upload a JSON file from a source path by moving it to the correct location."""
+        json_id = self._generate_id()
+        dest_path = self.get_json(json_id)
 
         # Ensure destination directory exists
         dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -91,33 +82,7 @@ class StorageManager:
         source = Path(source_path)
         source.rename(dest_path)
 
-        return pdf_id
-
-    def upload_tex_asset_from(self, source_path: str, tex_id: str, asset_path: str) -> str:
-        """Upload a TeX asset from a source path by moving it to the correct location."""
-        dest_path = self.get_tex_asset(tex_id, asset_path)
-
-        # Ensure destination directory exists
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Move the file from source to destination
-        source = Path(source_path)
-        source.rename(dest_path)
-
-        return str(dest_path)
-
-    def upload_pdf_synctex_from(self, source_path: str, pdf_id: str) -> str:
-        """Upload a synctex file associated with a PDF by moving it to the correct location."""
-        dest_path = self.storage_path / "pdf" / f"{pdf_id}.synctex.gz"
-
-        # Ensure destination directory exists
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Move the file from source to destination
-        source = Path(source_path)
-        source.rename(dest_path)
-
-        return str(dest_path)
+        return json_id
 
 
 # Global instance for convenience
@@ -140,18 +105,9 @@ def get_tex(tex_id: str) -> Path:
     return storage_manager.get_tex(tex_id)
 
 
-def get_pdf_file(pdf_id: str) -> Path:
-    """Get the file path for a PDF file by ID."""
-    return storage_manager.get_pdf_file(pdf_id)
-
-
-def get_tex_asset(tex_id: str, asset_path: str) -> Path:
-    """Get the file path for a TeX asset by tex_id and asset_path."""
-    return storage_manager.get_tex_asset(tex_id, asset_path)
-
-def get_pdf_synctex(pdf_id: str) -> Path:
-    """Get the file path for a synctex file associated with a PDF."""
-    return storage_manager.get_pdf_synctex(pdf_id)
+def get_json(json_id: str) -> Path:
+    """Get the file path for a JSON file by ID."""
+    return storage_manager.get_json(json_id)
 
 
 def upload_resource_from(source_path: str) -> str:
@@ -164,16 +120,6 @@ def upload_tex_from(source_path: str) -> str:
     return storage_manager.upload_tex_from(source_path)
 
 
-def upload_pdf_from(source_path: str) -> str:
-    """Upload a PDF file from a source path by moving it to the correct location."""
-    return storage_manager.upload_pdf_from(source_path)
-
-
-def upload_tex_asset_from(source_path: str, tex_id: str, asset_path: str) -> str:
-    """Upload a TeX asset from a source path by moving it to the correct location."""
-    return storage_manager.upload_tex_asset_from(source_path, tex_id, asset_path)
-
-
-def upload_pdf_synctex_from(source_path: str, pdf_id: str) -> str:
-    """Upload a synctex file associated with a PDF by moving it to the correct location."""
-    return storage_manager.upload_pdf_synctex_from(source_path, pdf_id)
+def upload_json_from(source_path: str) -> str:
+    """Upload a JSON file from a source path by moving it to the correct location."""
+    return storage_manager.upload_json_from(source_path)

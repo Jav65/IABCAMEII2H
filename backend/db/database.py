@@ -10,8 +10,8 @@ class Session(BaseModel):
     name: str
     format: str
     tex_id: str | None = None
-    pdf_id: str | None = None
-    synctex_id: str | None = None
+    json_id: str | None = None
+    generation_metadata_id: str | None = None
 
 
 class DatabaseManager:
@@ -38,8 +38,8 @@ class DatabaseManager:
                     name TEXT NOT NULL,
                     format TEXT NOT NULL,
                     tex_id TEXT,
-                    pdf_id TEXT,
-                    synctex_id TEXT
+                    json_id TEXT,
+                    generation_metadata_id TEXT
                 )
             ''')
             cursor.execute('DROP TABLE IF EXISTS resources')
@@ -70,7 +70,7 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT id, name, format, tex_id, pdf_id, synctex_id FROM sessions WHERE id = ?",
+                "SELECT id, name, format, tex_id, json_id, generation_metadata_id FROM sessions WHERE id = ?",
                 (session_id,)
             )
             row = cursor.fetchone()
@@ -80,31 +80,29 @@ class DatabaseManager:
                     name=row[1],
                     format=row[2],
                     tex_id=row[3],
-                    pdf_id=row[4],
-                    synctex_id=row[5]
+                    json_id=row[4]
                 )
             return None
 
-    def update_session(self, session_id: str, name: Optional[str] = None, format: Optional[str] = None, tex_id: Optional[str] = None, pdf_id: Optional[str] = None, synctex_id: Optional[str] = None) -> bool:
+    def update_session(self, session_id: str, name: Optional[str] = None, format: Optional[str] = None, tex_id: Optional[str] = None, json_id: Optional[str] = None, generation_metadata_id: Optional[str] = None) -> bool:
         """Update a session record. Returns True if the session was updated, False if not found."""
         session = self.get_session(session_id)
         if not session:
             return False
 
         # Use existing values if not provided
-        current_name, current_format, current_tex, current_pdf, current_synctex = session.name, session.format, session.tex_id, session.pdf_id, session.synctex_id
+        current_name, current_format, current_tex, current_json, current_generation_metadata = session.name, session.format, session.tex_id, session.json_id, session.generation_metadata_id
         new_name = name if name is not None else current_name
         new_format = format if format is not None else current_format
         new_tex = tex_id if tex_id is not None else current_tex
-        new_pdf = pdf_id if pdf_id is not None else current_pdf
-        new_synctex = synctex_id if synctex_id is not None else current_synctex
-
+        new_json = json_id if json_id is not None else current_json
+        new_generation_metadata = generation_metadata_id if generation_metadata_id is not None else current_generation_metadata
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE sessions SET name = ?, format = ?, tex_id = ?, pdf_id = ?, synctex_id = ? WHERE id = ?",
-                (new_name, new_format, new_tex, new_pdf, new_synctex, session_id)
+                "UPDATE sessions SET name = ?, format = ?, tex_id = ?, json_id = ?, generation_metadata_id = ? WHERE id = ?",
+                (new_name, new_format, new_tex, new_json, new_generation_metadata, session_id)
             )
             conn.commit()
             return cursor.rowcount > 0
@@ -121,7 +119,7 @@ class DatabaseManager:
         """Get all session records."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, name, format, tex_id, pdf_id, synctex_id FROM sessions")
+            cursor.execute("SELECT id, name, format, tex_id, json_id, generation_metadata_id FROM sessions")
             rows = cursor.fetchall()
             return [
                 Session(
@@ -129,8 +127,8 @@ class DatabaseManager:
                     name=row[1],
                     format=row[2],
                     tex_id=row[3],
-                    pdf_id=row[4],
-                    synctex_id=row[5]
+                    json_id=row[4],
+                    generation_metadata_id=row[5]
                 )
                 for row in rows
             ]
@@ -170,9 +168,9 @@ def get_session(session_id: str) -> Optional[Session]:
     return db_manager.get_session(session_id)
 
 
-def update_session(session_id: str, name: Optional[str] = None, format: Optional[str] = None, tex_id: Optional[str] = None, pdf_id: Optional[str] = None, synctex_id: Optional[str] = None) -> bool:
+def update_session(session_id: str, name: Optional[str] = None, format: Optional[str] = None, tex_id: Optional[str] = None, json_id: Optional[str] = None, generation_metadata_id: Optional[str] = None) -> bool:
     """Update a session record. Returns True if the session was updated, False if not found."""
-    return db_manager.update_session(session_id, name, format, tex_id, pdf_id, synctex_id)
+    return db_manager.update_session(session_id, name, format, tex_id, json_id, generation_metadata_id)
 
 
 def delete_session(session_id: str) -> bool:
