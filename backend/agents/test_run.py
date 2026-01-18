@@ -5,7 +5,7 @@ import os
 import json
 from pathlib import Path
 
-from backend.agents.pipeline import Pipeline, LLMAnalyzer, KnowledgeGraphBuilder, Clusterer, Orderer, CheatsheetGenerator
+from backend.agents.pipeline import Pipeline, LLMAnalyzer, KnowledgeGraphBuilder, Clusterer, Orderer, Generator
 from backend.agents.types import OutputFormat
 
 
@@ -24,9 +24,9 @@ def main() -> int:
     # New parameters for clustering and output generation
     parser.add_argument(
         "--output-format",
-        choices=["cheatsheet", "cue_card", "flashcard"],
+        choices=["cheatsheet", "keynote", "flashcard"],
         default="cheatsheet",
-        help="Output format: cheatsheet (LaTeX), cue_card (LaTeX), or flashcard (JSON)",
+        help="Output format: cheatsheet (LaTeX), keynote (LaTeX), or flashcard (JSON)",
     )
     parser.add_argument(
         "--run-atlasrag",
@@ -82,24 +82,34 @@ def main() -> int:
     kg_builder = KnowledgeGraphBuilder()
     clusterer = Clusterer()
     orderer = Orderer()
-    cheatsheet_generator = CheatsheetGenerator()
+    generator = Generator(output_format=args.output_format)
 
     pipeline = Pipeline(
         documents=documents,
+        output_format=args.output_format,
+        output_dir=args.job_id,
         llm=llm,
         kg_builder=kg_builder,
         clusterer=clusterer,
         orderer=orderer,
-        cheatsheet_generator=cheatsheet_generator,
+        generator=generator,
     )
 
-    cheatsheet, generation_metadata = pipeline.run()
+    content, generation_metadata = pipeline.run()
 
-    # Save cheatsheet output
+    # Determine file extension based on format
+    file_extensions = {
+        "cheatsheet": ".tex",
+        "cue_card": ".tex",
+        "flashcard": ".json",
+    }
+    file_ext = file_extensions.get(args.output_format, ".txt")
+    
+    # Save output
     out_dir = Path(args.job_id)
     out_dir.mkdir(parents=True, exist_ok=True)
-    output_file = out_dir / f"cheatsheet.tex"
-    output_file.write_text(cheatsheet, encoding="utf-8")
+    output_file = out_dir / f"{args.output_format}{file_ext}"
+    output_file.write_text(content, encoding="utf-8")
     
     # Save generation metadata
     metadata_file = out_dir / f"generation_metadata.json"

@@ -6,7 +6,7 @@ from backend.agents.pipeline import (
     KnowledgeGraphBuilder,
     Clusterer,
     Orderer,
-    CheatsheetGenerator,
+    Generator,
 )
 from backend.agents.types import (
     ClusteredKnowledge,
@@ -26,7 +26,7 @@ __all__ = [
     "KnowledgeGraphBuilder",
     "Clusterer",
     "Orderer",
-    "CheatsheetGenerator",
+    "Generator",
     "GroupedFiles",
     "ImportantCategory",
     "OutputFormat",

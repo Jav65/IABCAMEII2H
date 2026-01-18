@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 Category = Literal["Lectures", "Tutorials", "Labs", "Miscellaneous"]
 ImportantCategory = Literal["Lectures", "Tutorials", "Labs"]
-OutputFormat = Literal["cheatsheet", "cue_card", "flashcard"]
+OutputFormat = Literal["cheatsheet", "keynote", "flashcard"]
 
 
 class GroupedFiles(TypedDict, total=False):

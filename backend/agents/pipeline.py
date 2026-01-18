@@ -83,39 +83,80 @@ class Orderer:
         return clusters
 
 
-class CheatsheetGenerator:
-    """Generates LaTeX cheatsheet from ordered nodes using LLM."""
+class Generator:
+    """Generic generator for all output formats using generate_one_format."""
 
-    def __init__(self, model="gpt-4o-mini"):
+    def __init__(self, output_format: str = "cheatsheet", model: str = "gpt-4o-mini"):
+        """Initialize generator.
+        
+        Args:
+            output_format: Output format ("cheatsheet", "cue_card", or "flashcard")
+            model: LLM model to use (for future enhancements)
+        """
+        self.output_format = output_format
         self.model = model
 
-    def generate(self, ordered_nodes: ClusteredKnowledge) -> tuple[str, dict]:
-        """Generate LaTeX cheatsheet from ordered nodes using LLM for content blocks.
+    def generate(self, ordered_nodes: ClusteredKnowledge, output_dir: str | None = None) -> tuple[str, dict]:
+        """Generate study material in the specified format.
 
         Args:
             ordered_nodes: ClusteredKnowledge object
+            output_dir: Optional directory to write output files
 
         Returns:
-            Tuple of (LaTeX content, generation_metadata dict)
+            Tuple of (content, generation_metadata dict)
         """
         if not isinstance(ordered_nodes, ClusteredKnowledge):
             raise ValueError("ordered_nodes must be a ClusteredKnowledge object")
 
-        title = getattr(ordered_nodes, "category", "Study Cheatsheet")
+        title = getattr(ordered_nodes, "category", "Study Guide")
 
         try:
-            from backend.agents.generation import _generate_cheatsheet
-            return _generate_cheatsheet(ordered_nodes, title)
+            from backend.agents.generation import generate_one_format
+            import tempfile
+            
+            # Use temp dir if output_dir not provided
+            output_path = output_dir or tempfile.gettempdir()
+            
+            results = generate_one_format(
+                knowledge=ordered_nodes,
+                output_dir=output_path,
+                title=title,
+                selected_format=self.output_format,  # type: ignore
+            )
+            
+            # Extract the result for this format
+            generated_output = results[self.output_format]
+            return generated_output.content, generated_output.metadata.get("generation_metadata", {})
         except Exception as e:
-            print(f"Warning: LLM generation failed - {e}, using fallback")
-            return self._generate_fallback_latex(ordered_nodes, title)
+            print(f"Warning: Generation failed - {e}, using fallback")
+            return self._generate_fallback(ordered_nodes, title)
 
-    def _generate_fallback_latex(self, knowledge: ClusteredKnowledge, title: str) -> tuple[str, dict]:
-        """Generate basic LaTeX when agentic generator is unavailable.
+    def _generate_fallback(self, knowledge: ClusteredKnowledge, title: str) -> tuple[str, dict]:
+        """Generate fallback content when generation fails.
         
         Returns:
-            Tuple of (latex content, empty metadata dict)
+            Tuple of (content, empty metadata dict)
         """
+        if self.output_format == "flashcard":
+            import json
+            flashcards = {
+                "title": title,
+                "category": knowledge.category,
+                "cards": [
+                    {
+                        "id": node.node_id,
+                        "front": node.label,
+                        "back": node.description[:200],
+                        "type": node.node_type,
+                        "difficulty": 0,
+                    }
+                    for node in knowledge.nodes
+                ]
+            }
+            return json.dumps(flashcards, indent=2, ensure_ascii=False), {}
+        
+        # Default to LaTeX for cheatsheet and cue_card
         latex = r"""
 \documentclass[9pt,a4paper]{article}
 \usepackage[margin=0.4in]{geometry}
@@ -162,29 +203,33 @@ class CheatsheetGenerator:
 
 
 class Pipeline:
-    """End-to-end pipeline: parse docs -> LLM analysis -> KG -> cluster -> order -> cheatsheet."""
+    """End-to-end pipeline: parse docs -> LLM analysis -> KG -> cluster -> order -> generate."""
 
     def __init__(
         self,
         documents: List[Dict[str, Any]],
+        output_format: str = "cheatsheet",
+        output_dir: Optional[str] = None,
         llm: Optional[LLMAnalyzer] = None,
         kg_builder: Optional[KnowledgeGraphBuilder] = None,
         clusterer: Optional[Clusterer] = None,
         orderer: Optional[Orderer] = None,
-        cheatsheet_generator: Optional[CheatsheetGenerator] = None,
+        generator: Optional[Generator] = None,
     ):
         self.documents = documents
+        self.output_format = output_format
+        self.output_dir = output_dir
         self.llm = llm or LLMAnalyzer()
         self.kg_builder = kg_builder or KnowledgeGraphBuilder()
         self.clusterer = clusterer or Clusterer()
         self.orderer = orderer or Orderer()
-        self.cheatsheet_generator = cheatsheet_generator or CheatsheetGenerator()
+        self.generator = generator or Generator(output_format=output_format)
 
     def run(self) -> tuple[str, dict]:
         """Run the full pipeline.
 
         Returns:
-            Tuple of (LaTeX cheatsheet content, generation_metadata dict)
+            Tuple of (generated content, generation_metadata dict)
         """
         print("[Pipeline] Starting end-to-end pipeline...")
 
@@ -192,7 +237,7 @@ class Pipeline:
         doc_infos = self._analyze_documents_parallel()
         if not doc_infos:
             print("[Pipeline] Warning: No documents were successfully analyzed")
-            return "% No documents to generate cheatsheet from\n", {}
+            return "% No documents to generate output from\n", {}
 
         print("[Pipeline] Step 2: Building knowledge graph...")
         kg = self._build_knowledge_graph(doc_infos)
@@ -209,14 +254,14 @@ class Pipeline:
         if ordered_nodes is None:
             return "% Error ordering nodes\n", {}
 
-        print("[Pipeline] Step 5: Generating cheatsheet...")
-        result = self._generate_cheatsheet(ordered_nodes)
+        print(f"[Pipeline] Step 5: Generating {self.output_format}...")
+        result = self._generate_output(ordered_nodes)
         if result is None:
-            return "% Error generating cheatsheet\n", {}
+            return f"% Error generating {self.output_format}\n", {}
         
-        cheatsheet, metadata = result
+        content, metadata = result
         print("[Pipeline] ✓ Pipeline complete!")
-        return cheatsheet, metadata
+        return content, metadata
 
     def _analyze_documents_parallel(self) -> List[Dict[str, Any]]:
         """Analyze documents in parallel using ThreadPoolExecutor."""
@@ -267,17 +312,17 @@ class Pipeline:
             print(f"  Error ordering: {e}")
             return None
 
-    def _generate_cheatsheet(self, ordered_nodes: ClusteredKnowledge) -> Optional[tuple[str, dict]]:
-        """Generate cheatsheet from ordered nodes.
+    def _generate_output(self, ordered_nodes: ClusteredKnowledge) -> Optional[tuple[str, dict]]:
+        """Generate output in configured format from ordered nodes.
         
         Returns:
-            Tuple of (cheatsheet content, metadata dict) or None on error
+            Tuple of (content, metadata dict) or None on error
         """
         try:
-            cheatsheet, metadata = self.cheatsheet_generator.generate(ordered_nodes)
-            print(f"  Generated cheatsheet ({len(cheatsheet)} chars)")
+            content, metadata = self.generator.generate(ordered_nodes, self.output_dir)
+            print(f"  Generated {self.output_format} ({len(content)} chars)")
             print(f"  Tracked {len(metadata)} generation blocks")
-            return cheatsheet, metadata
+            return content, metadata
         except Exception as e:
-            print(f"  Error generating cheatsheet: {e}")
+            print(f"  Error generating {self.output_format}: {e}")
             return None
