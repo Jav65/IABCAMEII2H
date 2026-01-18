@@ -1,0 +1,118 @@
+.flashcard-layout {
+  grid-template-columns: minmax(240px, 0.35fr) minmax(0, 1fr);
+}
+
+.flashcard-editor {
+  font-size: 12.5px;
+}
+
+.flashcard-meta {
+  justify-content: space-between;
+}
+
+.flashcard-stage {
+  flex: 1;
+  min-height: 0;
+  background: #0f0f0f;
+  border-radius: 8px;
+  border: 1px solid #232323;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.flashcard-card {
+  width: min(520px, 100%);
+  height: 260px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  perspective: 1200px;
+}
+
+.flashcard-card:disabled {
+  cursor: not-allowed;
+}
+
+.flashcard-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 0.6s ease;
+}
+
+.flashcard-inner--flipped {
+  transform: rotateY(180deg);
+}
+
+.flashcard-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  border: 1px solid #2a2a2a;
+  background: #141414;
+  color: #e6e6e6;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 16px;
+  line-height: 1.4;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.35);
+  backface-visibility: hidden;
+}
+
+.flashcard-face--back {
+  transform: rotateY(180deg);
+  background: #141b25;
+  border-color: #2a3c52;
+}
+
+.flashcard-placeholder {
+  font-size: 12px;
+  color: #8b8b8b;
+  text-align: center;
+}
+
+.flashcard-complete {
+  margin-top: -4px;
+}
+
+.flashcard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.flashcard-button {
+  border: 1px solid #2a2a2a;
+  background: #1a1a1a;
+  color: #e6e6e6;
+  font-size: 12px;
+  border-radius: 8px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.flashcard-button:hover {
+  background: #222222;
+  border-color: #3a3a3a;
+}
+
+.flashcard-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.flashcard-hint {
+  font-size: 11px;
+  color: #8b8b8b;
+  text-align: right;
+}
