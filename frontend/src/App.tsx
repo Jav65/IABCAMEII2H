@@ -211,43 +211,43 @@ function App() {
   const sessionId = session.id;
   const sessionName = session.name;
 
-  // useEffect(() => {
-  //   // Start listening to SSE
-  //   const eventSource = new EventSource(`${API_URL}/session/${sessionId}/listen`);
-  //   eventSource.onmessage = (message) => {
-  //     const data = JSON.parse(message.data);
-  //     if (data.event === "contentReady") {
-  //       const texId = data.contentId;
-  //       const metadataId = data.generationMetadataId;
-  //       fetch(`${API_URL}/tex/${texId}`, {
-  //         method: 'GET',
-  //       }).then(async (response) => {
-  //         const reader = response.body!.getReader();
-  //         const decoder = new TextDecoder("utf-8");
+  useEffect(() => {
+    // Start listening to SSE
+    const eventSource = new EventSource(`${API_URL}/session/${sessionId}/listen`);
+    eventSource.onmessage = (message) => {
+      const data = JSON.parse(message.data);
+      if (data.event === "contentReady") {
+        const texId = data.contentId;
+        const metadataId = data.generationMetadataId;
+        fetch(`${API_URL}/tex/${texId}`, {
+          method: 'GET',
+        }).then(async (response) => {
+          const reader = response.body!.getReader();
+          const decoder = new TextDecoder("utf-8");
 
 
-  //         while (true) {
-  //           const { value, done } = await reader.read();
-  //           if (done) break;
-  //           const chunk = decoder.decode(value, { stream: true });
-  //           setLatexSource(prev => prev + chunk);
-  //         }
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            setLatexSource(prev => prev + chunk);
+          }
 
-  //         const chunk = decoder.decode();
-  //         setLatexSource(prev => prev + chunk);
-  //       })
-  //       fetch(`${API_URL}/json/${metadataId}`, {
-  //         method: 'GET',
-  //       }).then(async (response) => {
-  //         // const metadata = await response.json();
-  //       });
+          const chunk = decoder.decode();
+          setLatexSource(prev => prev + chunk);
+        })
+        fetch(`${API_URL}/json/${metadataId}`, {
+          method: 'GET',
+        }).then(async (response) => {
+          // const metadata = await response.json();
+        });
 
-  //       setIsContentReady(true);
-  //     } else if (data.event === "contentError") {
-  //       setIsContentError(true);
-  //     }
-  //   }
-  // })
+        setIsContentReady(true);
+      } else if (data.event === "contentError") {
+        setIsContentError(true);
+      }
+    }
+  })
 
   /*
   // load initial source from local storage or sample file
