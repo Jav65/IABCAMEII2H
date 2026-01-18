@@ -1,0 +1,115 @@
+.home-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.home-input {
+  width: min(760px, 100%);
+  background: #141414;
+  border: 1px solid #232323;
+  border-radius: 18px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+}
+
+.home-textarea {
+  width: 100%;
+  min-height: 130px;
+  border-radius: 14px;
+  border: 1px solid #2a2a2a;
+  background: #0f0f0f;
+  color: #d4d4d4;
+  font-family: "Segoe UI", "Inter", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 14px;
+  resize: none;
+}
+
+.home-textarea:focus {
+  outline: 2px solid #3794ff;
+  outline-offset: 2px;
+}
+
+.home-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.home-upload {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid #2a2a2a;
+  background: #1a1a1a;
+  color: #e6e6e6;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.home-upload:hover {
+  background: #222222;
+  border-color: #3a3a3a;
+}
+
+.home-upload input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.home-select {
+  min-width: 200px;
+  border-radius: 10px;
+  border: 1px solid #2a2a2a;
+  background: #0f0f0f;
+  color: #d4d4d4;
+  font-size: 12px;
+  padding: 8px 12px;
+}
+
+.home-select:focus {
+  outline: 2px solid #3794ff;
+  outline-offset: 2px;
+}
+
+.home-submit {
+  border: 1px solid #2a2a2a;
+  background: #1a1a1a;
+  color: #e6e6e6;
+  font-size: 12px;
+  border-radius: 10px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.home-submit:hover {
+  background: #222222;
+  border-color: #3a3a3a;
+}
+
+.home-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.home-file {
+  font-size: 11px;
+  color: #8b8b8b;
+  text-align: right;
+}
