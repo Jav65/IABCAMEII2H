@@ -1,4 +1,5 @@
 import asyncio
+import os
 from urllib import request
 import uuid
 from typing import AsyncGenerator
@@ -7,6 +8,9 @@ import tempfile
 import zipfile
 import subprocess, tempfile, json, shutil
 from pathlib import Path
+
+from dotenv import load_dotenv
+
 from workers.tex_to_pdf import parse_synctex, run_latex
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
@@ -35,6 +39,27 @@ class SessionCreate(BaseModel):
     name: str | None = None
 
 
+class ChatSelectedLine(BaseModel):
+    """Selected editor line sent as chat context."""
+    line_number: int
+    text: str
+
+
+class ChatRequest(BaseModel):
+    """Chatbot API contract."""
+    prompt: str
+    selected_line: ChatSelectedLine | None = None
+    selected_lines: list[ChatSelectedLine] | None = None 
+
+
+class ChatResponse(BaseModel):
+    """Chatbot response payload."""
+    reply: str
+    selected_line: ChatSelectedLine | None = None
+    selected_lines: list[ChatSelectedLine] | None = None
+    latex: str | None = None
+
+
 # In-memory storage for sessions and their associated queues
 session_queues: dict[str, asyncio.Queue] = {}
 
@@ -49,6 +74,54 @@ def get_or_create_queue(session_id: str) -> asyncio.Queue:
     if session_id not in session_queues:
         session_queues[session_id] = asyncio.Queue()
     return session_queues[session_id]
+
+
+def build_chat_prompt(
+    prompt: str,
+    selected_line: ChatSelectedLine | None = None,
+    selected_lines: list[ChatSelectedLine] | None = None
+) -> str:
+    """Format the chat prompt, with context from one or more lines."""
+    prompt = prompt.strip()
+
+    if selected_lines:
+        joined_lines = "\n".join(
+            f"Line {l.line_number}: {l.text.strip()}" for l in selected_lines
+        )
+        return f"{prompt}\n\nSelected lines:\n{joined_lines}"
+
+    if selected_line:
+        line_text = selected_line.text.strip("\n")
+        return f"{prompt}\n\nSelected line {selected_line.line_number}:\n{line_text}"
+
+    return prompt
+
+
+def build_chat_system_prompt() -> str:
+    """System prompt that enforces a structured response."""
+    return (
+        "You are a helpful LaTeX assistant. Respond ONLY as JSON with keys "
+        '"reply" and "latex". "reply" is a concise explanation. "latex" is the '
+        "full LaTeX replacement for the selected lines, or an empty string if "
+        "no change is needed. Do not wrap JSON in Markdown."
+    )
+
+
+def parse_chat_response(raw_response: str) -> tuple[str, str | None]:
+    """Parse model output into reply + latex with a safe fallback."""
+    try:
+        payload = json.loads(raw_response)
+    except json.JSONDecodeError:
+        return raw_response.strip(), None
+
+    reply = payload.get("reply")
+    latex = payload.get("latex")
+
+    reply_text = reply.strip() if isinstance(reply, str) and reply.strip() else raw_response.strip()
+    latex_text = latex if isinstance(latex, str) else None
+    if latex_text is not None:
+        latex_text = latex_text.strip("\n")
+    return reply_text, latex_text
 
 
 def extract_zip_recursive(zip_path: Path, extract_to: Path) -> list[Path]:
@@ -282,7 +355,70 @@ async def end_session_stream(session_id: str) -> None:
     if session_id in session_queues:
         queue = session_queues[session_id]
         await queue.put({ "event": "end" })
-        
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(payload: ChatRequest) -> ChatResponse:
+    prompt = payload.prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Prompt is required")
+
+    chat_prompt = build_chat_prompt(
+        prompt,
+        selected_line=payload.selected_line,
+        selected_lines=payload.selected_lines,
+    )
+    
+    load_dotenv()
+    api_key = os.environ.get("OPENAI_API_KEY")
+
+    if api_key:
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=api_key)
+
+            def send_request() -> str:
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": build_chat_system_prompt(),
+                        },
+                        {"role": "user", "content": chat_prompt},
+                    ],
+                    temperature=0.2,
+                    max_tokens=800,
+                    response_format={"type": "json_object"},
+                )
+                return response.choices[0].message.content.strip()
+
+            raw_response = await asyncio.to_thread(send_request)
+            reply, latex = parse_chat_response(raw_response)
+        except Exception as exc:
+            import traceback
+            tb = traceback.format_exc()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Chatbot request failed: {exc}\n{tb}"
+            )
+        # except Exception as exc:
+        #     raise HTTPException(status_code=500, detail="Chatbot request failed") from exc
+    else:
+        context_hint = ""
+        if payload.selected_line:
+            context_hint = f" (line {payload.selected_line.line_number} provided)"
+        reply = f"Chatbot not configured. Prompt received{context_hint}."
+        latex = None
+
+    return ChatResponse(
+        reply=reply,
+        latex=latex,
+        selected_line=payload.selected_line,
+        selected_lines=payload.selected_lines,
+    )   
+
 @app.post("/compile")
 async def compile_live(request: Request):
     payload = await request.json()
