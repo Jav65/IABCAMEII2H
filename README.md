@@ -51,7 +51,7 @@ A JSON editor and deck loader featuring:
 Type a concept, flip for the answer, and repeat until panic transforms into calm mastery.
 
 ### 🎤 Keynote/Cue Card Mode
-Presentation-ready cue cards in LaTeX format:
+Presentation-ready cue cards in interactive format:
 - 📇 Front/back card layout
 - 🎨 Clean, professional styling
 - 📱 Print-ready format
@@ -100,7 +100,7 @@ Documents → LLM Analysis → Knowledge Graph → Clustering → Ordering → G
 
 #### Key Technologies
 - **LLMs**: OpenAI GPT-4o-mini for content analysis and refinement
-- **Document Processing**: PyPDF2, pdfplumber for PDF parsing
+- **Document Processing**: PyMuPDF for PDF parsing
 - **RAG System**: Atlas-RAG for knowledge graph construction and semantic search
 - **Database**: SQLite for study session persistence
 - **API Framework**: FastAPI for high-performance REST endpoints
@@ -306,12 +306,6 @@ This project is open to contributions! Whether you're:
 - 🎨 Enhancing the UI
 
 ...we'd love your help. Please open an issue or PR!
-
----
-
-## 📄 License
-
-This project is available under the MIT License. See `LICENSE` for details.
 
 ---
 
