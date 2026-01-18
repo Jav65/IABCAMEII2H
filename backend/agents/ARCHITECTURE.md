@@ -85,8 +85,8 @@ GroupedFiles = {
 ### Python API
 
 ```python
-from backend.agents.pipeline import run_pipeline
-from backend.agents.types import GroupedFiles
+from agents.pipeline import run_pipeline
+from agents.types import GroupedFiles
 
 grouped_files: GroupedFiles = {
     "Lectures": ["/path/to/lecture1.pdf"],
@@ -300,7 +300,7 @@ output = generate_output(request, "./output")
 
 # 5. (Optional) Use LLM refinement
 if use_lm:
-    from backend.agents.agentic_cheatsheet import generate_agentic_cheatsheet
+    from agents.agentic_cheatsheet import generate_agentic_cheatsheet
     enhanced = generate_agentic_cheatsheet(clustered, title="...")
 ```
 

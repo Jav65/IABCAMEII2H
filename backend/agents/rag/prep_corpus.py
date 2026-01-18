@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Iterable, List
 
-from backend.agents.types import CorpusItem, PageContent
+from agents.types import CorpusItem, PageContent
 
 
 def chunk_text(text: str, max_chars: int = 2000, overlap_chars: int = 200) -> List[str]:

@@ -31,9 +31,7 @@ class DatabaseManager:
         """Initialize the database with the session table."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            # Drop the old table if it exists (with old schema)
             cursor.execute('DROP TABLE IF EXISTS sessions')
-            # Create the new table with updated schema
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS sessions (
                     id TEXT PRIMARY KEY,
@@ -44,9 +42,16 @@ class DatabaseManager:
                     synctex_id TEXT
                 )
             ''')
+            cursor.execute('DROP TABLE IF EXISTS resources')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS resources (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL REFERENCES sessions(id)
+                )
+            ''')
             conn.commit()
 
-    def create_session(self, name: str, format: str) -> str:
+    def create_session(self, name: str, format: str) -> Session:
         """Create a new session record and return the session ID."""
         session_id = str(uuid.uuid4())
 
@@ -58,7 +63,7 @@ class DatabaseManager:
             )
             conn.commit()
 
-        return session_id
+        return Session(id=session_id, name=name, format=format)
 
     def get_session(self, session_id: str) -> Optional[Session]:
         """Get a session record by ID."""
@@ -130,6 +135,25 @@ class DatabaseManager:
                 for row in rows
             ]
 
+    def add_resources(self, session_id: str, resource_ids: list[str]) -> None:
+        """Add resource records associated with a session."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            # TODO: optimize? this is still more than one query i think
+            cursor.executemany(
+                "INSERT INTO resources (id, session_id) VALUES (?, ?)",
+                [(resource_id, session_id) for resource_id in resource_ids]
+            )
+            conn.commit()
+
+    def list_resources(self, session_id: str) -> list[str]:
+        """Get all resource IDs associated with a session."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM resources WHERE session_id = ?", (session_id,))
+            rows = cursor.fetchall()
+            return [row[0] for row in rows]
+
 
 # Global instance for convenience
 db_manager = DatabaseManager()
@@ -159,3 +183,13 @@ def delete_session(session_id: str) -> bool:
 def list_sessions() -> list[Session]:
     """Get all session records."""
     return db_manager.list_sessions()
+
+
+def add_resources(session_id: str, resource_ids: list[str]) -> None:
+    """Add resource records associated with a session."""
+    return db_manager.add_resources(session_id, resource_ids)
+
+
+def list_resources(session_id: str) -> list[str]:
+    """Get all resource IDs associated with a session."""
+    return db_manager.list_resources(session_id)
